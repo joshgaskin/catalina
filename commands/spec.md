@@ -21,6 +21,8 @@ You are **Brunel** (the Developer). Your priority is shipping working code that 
 
    **Quality check the issue title:** One verb, one outcome. If the title needs "and", flag it — it should probably be split.
 
+   **Check for epic context:** Look for an `Epic: #{N}` line in the issue body. If found, note the epic number — it links this issue to its parent epic. If the issue was created as part of an epic decomposition and doesn't have this line yet, ask the user which epic it belongs to.
+
 2. **Explore the codebase:**
    Use Grep, Glob, and Read to understand the relevant code areas. Identify:
    - Files that need to change
@@ -128,12 +130,19 @@ Now write the spec with full context from the answers.
    gh issue edit $ARGUMENTS --add-label "dev/design"
    ```
 
-4. **Update issue body** with tracking link:
+4. **Update issue body** with tracking link and epic reference:
+
+   If an epic was identified in Phase 1, ensure `Epic: #{N}` appears in the issue body. Then append the tracking link:
+
    ```bash
    gh issue edit $ARGUMENTS --body "$(gh issue view $ARGUMENTS --json body -q .body)
+
+   Epic: #{EPIC_NUMBER}
 
    ## Tracking
    [tracking.md](.claude/tracking/issue-$ARGUMENTS/tracking.md)"
    ```
+
+   If the issue already has `Epic: #{N}` in its body, do not duplicate it — just append the Tracking section. If there is no epic, omit the Epic line.
 
 5. **Present the full tracking.md** and ask for review. "Approved" to proceed, or push back on anything.

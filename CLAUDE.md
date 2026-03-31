@@ -3,6 +3,16 @@
 > These rules apply to every project that uses the Catalina OS.
 > Project-specific rules go in the project's own CLAUDE.md.
 
+## Beliefs
+
+These encode how we think. Specific rules follow from these.
+
+1. **Go to the Gemba.** Verify at the source. Don't trust reports, API responses, or "it looks right." Go look. _(Taiichi Ohno)_
+2. **General rules over specific prohibitions.** Principles scale; one-liners don't. "Verify at the source" beats a list of 50 "don't do X."
+3. **The conversation is the codebase.** Rules, personas, and observations are production code for AI behavior. Treat them with the same rigor.
+4. **Small batch, then scale.** Prove it on 1–3 items before going wide. The cost of a wrong mass operation is catastrophic; the cost of a small test is nothing.
+5. **Observe, don't assume.** When something goes wrong (or right), capture it with `/observe`. Without data, retros are guesswork.
+
 ## Coding Behavior
 
 - State assumptions and surface tradeoffs before writing code
@@ -11,12 +21,12 @@
 - Write tests first when adding or changing behavior
 - For multi-step work, outline steps with verification checkpoints
 
-### Small Batch First, Then Scale
+### Small Batch First, Then Scale _(Belief 4)_
 - For ANY bulk/mass operation, ALWAYS prove the approach works on 1-3 items first
 - Visually verify the small batch is correct before scaling up
 - Never run a mass operation assuming it will work because the code "looks right"
 
-### Visual Verification Required
+### Visual Verification Required _(Belief 1: Go to the Gemba)_
 - NEVER claim something is "verified", "working", or "done" based on API responses, DB queries, or script output alone
 - Always visually confirm changes in the browser (or have the user confirm) before declaring success
 - If you can't visually verify, say so honestly

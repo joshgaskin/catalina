@@ -32,6 +32,13 @@ Triage open GitHub issues and present a dashboard.
    - How many AC are checked?
    - Current stage (spec/implement/witness)
 
+   **Check for recent observations:**
+   For each issue, check GitHub comments for observation markers from the last 7 days:
+   ```bash
+   gh issue view {N} --json comments -q '[.comments[] | select(.body | contains("<!-- observation:"))] | length'
+   ```
+   If observations exist, count them by type (failure/success/friction/insight) for the dashboard indicator.
+
 4. **If a specific issue number was provided** ($ARGUMENTS), focus the deep dive on that issue — show full tracking.md status, recent activity, and recommended next step.
 
 5. **Present dashboard:**
@@ -42,7 +49,7 @@ Triage open GitHub issues and present a dashboard.
    - #8 Feature W — STALE (5 days in review) — needs attention
 
    ## In Flight
-   - #15 Feature Y — dev/implement, 3/5 AC done
+   - #15 Feature Y — dev/implement, 3/5 AC done — 2 observations (1 failure)
    - #18 Feature Z — dev/design, tracking.md drafted
 
    ## Blocked

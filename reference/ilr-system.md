@@ -143,6 +143,64 @@ Deming retro -> save process learnings
 
 ---
 
+## Epic Linking
+
+Sub-issues reference their parent epic with a line in the issue body:
+
+```
+Epic: #{N}
+```
+
+Written by `/spec` during Phase 3 when the epic context is known. This enables:
+- **Observation bubbling:** `/observe` posts to both the issue AND its parent epic
+- **Cross-issue context:** `/recall` pulls observations from sibling issues via the epic
+- **Groom visibility:** `/groom` can group sub-issues under their epic
+
+Query epic for an issue: `gh issue view {N} --json body -q .body | grep -oP 'Epic: #\K[0-9]+'`
+Find all sub-issues: `gh search issues "Epic: #{EPIC}" --state open`
+
+---
+
+## Observation System
+
+Observations are structured comments on GitHub issues that capture agent behavior (good and bad) for future learning. They are the raw material for Deming retros and the "memory" that makes agents improve over time.
+
+### How It Works
+
+- **`/observe {type} {text}`** — Posts a structured comment on the current issue + its epic (if linked). Also writes to local JSONL as offline fallback.
+- **`/recall [N]`** — Loads past observations from GitHub comments + local JSONL into agent context. Synthesizes patterns if 3+ observations exist.
+- **Observations feed retros** — Deming reads observations when reviewing a shipped issue, looking for recurring patterns that warrant rule changes.
+
+### Observation Types
+
+| Type | When |
+|------|------|
+| `failure` | Agent did something wrong or unexpected |
+| `success` | Agent did something notably well |
+| `friction` | Process felt harder than it should |
+| `insight` | A realization or pattern worth remembering |
+
+### Comment Format
+
+GitHub comments use an invisible HTML marker for machine parsing + visible human-readable body:
+
+```markdown
+<!-- observation:{"type":"failure","agent":"Brunel","issue":42,"timestamp":"2026-03-31T10:15:00Z","context":"implementation"} -->
+## Observation: failure
+
+**Agent claimed visual verification but didn't open browser**
+
+_Brunel · implementation phase · 2026-03-31T10:15Z_
+```
+
+Epic comments include `"source_issue":{N}` in the JSON and show `from #{N}` in the heading.
+
+### The "Mom's Watching" Effect
+
+When agents know their past failures are visible and queryable, they behave better. `/recall` at the start of a session loads this context. The observations don't need to be perfect — the act of recording and surfacing them is what drives improvement.
+
+---
+
 ## Tracking Artifacts
 
 ```
@@ -150,6 +208,7 @@ Deming retro -> save process learnings
   issue-{N}/
     tracking.md          # DoD + AC + design notes + review history
     verification.jsonl   # Per-AC evidence log from /witness
+    observations.jsonl   # Local observation fallback (offline backup)
 ```
 
 ### tracking.md Template
@@ -230,6 +289,8 @@ An issue that can't be definitively closed is a bad issue.
 | `/groom [N]` | — | Triage open issues, flag stale reviews (>2 days) |
 | `/witness {N}` | Feynman | Self-verify AC, capture visual evidence, label `review` |
 | `/capture {N} {what}` | Brunel | Mid-flight spec update |
+| `/observe {type} {text}` | Deming | Record observation on issue + epic (non-disruptive) |
+| `/recall [N]` | Deming | Load past observations into context |
 
 ---
 
@@ -238,7 +299,7 @@ An issue that can't be definitively closed is a bad issue.
 1. **Label lifecycle** — labels encode state transitions, managed by Claude
 2. **Commit-msg hook** — rejects commits without issue refs on `issue-*` branches
 3. **Witness is mandatory** — never skip `/witness`, never ask to skip it
-4. **Deming retro** — after every "ship it", review the cycle for process gaps
+4. **Deming retro** — after every "ship it", run `/recall` to load observations, then review the cycle for process gaps. Propose rule changes to CLAUDE.md for recurring patterns.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
 
 ---
