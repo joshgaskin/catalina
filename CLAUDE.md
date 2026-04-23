@@ -21,6 +21,12 @@ These encode how we think. Specific rules follow from these.
 - Write tests first when adding or changing behavior
 - For multi-step work, outline steps with verification checkpoints
 
+### Asking the user
+
+- **Always use the AskUserQuestion tool for clarifying questions**, not inline prose. This includes ILR interrogation phase (`/spec`), ambiguity resolution, decision points, and preference collection. Exception: follow-up clarification to a single answer that came back unclear — one-line prose is fine.
+- Batch questions in a single AskUserQuestion call (tool supports up to 4). Don't trickle questions across turns.
+- When you have more than 4 open questions, pick the 4 highest-leverage decisions and default sensibly on the rest — tell the user what you defaulted to.
+
 ### Small Batch First, Then Scale _(Belief 4)_
 - For ANY bulk/mass operation, ALWAYS prove the approach works on 1-3 items first
 - Visually verify the small batch is correct before scaling up
