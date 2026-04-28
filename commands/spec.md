@@ -78,7 +78,14 @@ Present all questions at once, numbered, so they can be answered efficiently. Do
 
 Now write the spec with full context from the answers.
 
-1. **Write tracking.md:**
+1. **AC realism check — do this BEFORE writing the AC.** For every AC you intend to write that names a specific entity (SKU, user, record) or a threshold (tier, score, count), walk the formula end-to-end:
+   - What signals does this entity need from the new code?
+   - What are this entity's actual signal values today (run the proposed logic against live data — read from the cache, query the DB, hit the API)?
+   - Will the new code's output for this entity actually clear the AC threshold?
+
+   If the answer is "probably" or "depends," the AC is aspiration, not a test — rewrite it to assert the mechanism (e.g. "stockoutMonths includes the recent zero months for SKU X") instead of the downstream outcome (e.g. "SKU X reaches tier Strong"). Downstream filters with thresholds outside the change's reach (e.g. mystery-bundle eligibility at `score ≤ 60`) will silently block downstream-outcome ACs even when the upstream change is correct.
+
+2. **Write tracking.md:**
    Create `.claude/tracking/issue-$ARGUMENTS/tracking.md`:
 
    ```markdown
@@ -95,6 +102,12 @@ Now write the spec with full context from the answers.
    {Architecture decisions, files to modify, existing patterns to follow, trade-offs}
    {Key decisions from answers that shaped the spec}
    {If domain agent perspective was consulted, note the relevant business rules}
+
+   ## Cache Invalidation Plan
+   {Required ONLY if the change affects derived data that lives in a cache.
+    List each cache key the change invalidates, the mechanism to bust it,
+    auth required, and what to do if the mechanism fails (e.g. Vercel cron
+    timeout). If no caches affected, write "None — pure source code change."}
 
    ## Review History
    {Empty — tracks spec/implementation review bounces}
