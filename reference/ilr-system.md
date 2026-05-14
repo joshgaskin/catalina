@@ -82,13 +82,14 @@ Richard Feynman. "The first principle is that you must not fool yourself — and
 - Priority: Quality gates. Does the spec make sense? Does the implementation match?
 - Bias: Skepticism. Assumes broken until proven otherwise.
 - Active during: `/witness` — spawned as a separate agent
+- Premortem check: reads the `## Premortem` section of tracking.md and actively verifies each predicted failure mode. If a predicted failure `occurred`, witnessing fails regardless of AC pass-rate — the mitigation was missed or the spec was wrong.
 - Critical rule: Feynman NEVER sees the Developer's implementation reasoning. Only the spec (tracking.md) and the deployed output. This prevents "I know why I did it this way" from biasing the review.
 
 **Chesterton — SA** (design subprocess)
 G.K. Chesterton. "Don't ever take a fence down until you know the reason it was put up."
-- Priority: Architectural coherence. Does this fit the system?
-- Bias: Long-term thinking. Reuse existing patterns over creating new ones.
-- Active during: `/spec` for non-trivial issues (>3 files, touches shared utilities, new patterns)
+- Priority: Architectural coherence + risk surfacing. Does this fit the system, and where will it fail?
+- Bias: Long-term thinking. Reuse existing patterns; predict failure modes before they happen.
+- Active during: `/spec` for every ticket — fence question + premortem. Effort scales to ticket size (lite paragraph for trivial, ranked 3–5 failure modes for non-trivial). Premortem findings persist in the `## Premortem` section of tracking.md so Feynman can check them at `/witness` and Deming can compare predicted vs actual at retro.
 
 **Darwin — JA** (exploration subprocess)
 Charles Darwin. Spent years observing before theorizing. Catalogued everything.
@@ -123,7 +124,7 @@ Human creates issue
 Darwin explores + Domain agent provides context (if applicable)
     |
     v
-Brunel specs + Chesterton checks architecture (non-trivial) + Domain validates business logic
+Brunel specs + Chesterton (fence + premortem, every ticket) + Domain validates business logic
     |
     v
 Human reviews spec
@@ -132,7 +133,7 @@ Human reviews spec
 Brunel implements (with domain rules in mind)
     |
     v
-Feynman witnesses + Domain verifies business sense
+Feynman witnesses (incl. premortem-vs-actual) + Domain verifies business sense
     |
     v
 Human reviews evidence -> ships or pushes back
@@ -225,6 +226,9 @@ When agents know their past failures are visible and queryable, they behave bett
 ## Design Notes
 {Architecture decisions, files to modify, trade-offs}
 
+## Premortem
+{Top failure modes from Chesterton: `- **{Scenario}** — early sign: {x}; mitigation: {y}`}
+
 ## Review History
 {Track review cycles — if this bounces 3 times, the spec was bad}
 
@@ -284,10 +288,10 @@ An issue that can't be definitively closed is a bad issue.
 
 | Command | Agent | Purpose |
 |---------|-------|---------|
-| `/spec {N}` | Brunel + Chesterton | Produce tracking.md with DoD + AC |
+| `/spec {N}` | Brunel + Chesterton | Produce tracking.md with DoD + AC + premortem |
 | `/probe {topic}` | Darwin | Deep exploration before design |
 | `/groom [N]` | — | Triage open issues, flag stale reviews (>2 days) |
-| `/witness {N}` | Feynman | Self-verify AC, capture visual evidence, label `review` |
+| `/witness {N}` | Feynman | Self-verify AC, check premortem-vs-actual, capture visual evidence, label `review` |
 | `/capture {N} {what}` | Brunel | Mid-flight spec update |
 | `/observe {type} {text}` | Deming | Record observation on issue + epic (non-disruptive) |
 | `/recall [N]` | Deming | Load past observations into context |
@@ -299,7 +303,7 @@ An issue that can't be definitively closed is a bad issue.
 1. **Label lifecycle** — labels encode state transitions, managed by Claude
 2. **Commit-msg hook** — rejects commits without issue refs on `issue-*` branches
 3. **Witness is mandatory** — never skip `/witness`, never ask to skip it
-4. **Deming retro** — after every "ship it", run `/recall` to load observations, then review the cycle for process gaps. Propose rule changes to CLAUDE.md for recurring patterns.
+4. **Deming retro** — after every "ship it", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
 
 ---

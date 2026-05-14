@@ -20,6 +20,8 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 1. **Read the spec:**
    Read `.claude/tracking/issue-$ARGUMENTS/tracking.md`. Understand the Definition of Done and every Acceptance Criterion. If anything in the AC is vague, flag it.
 
+   **Also read the `## Premortem` section.** These are the failure modes Chesterton predicted at spec time. You will verify each one during witnessing: did the predicted failure occur? Did its early warning sign surface? Some premortem items require active checks beyond the AC — note them so you don't skip them in step 3.
+
 2. **Programmatic verification** (where possible):
    - Run tests if they exist
    - Grep for expected code changes
@@ -41,22 +43,27 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    d. Capture evidence for each AC — screenshots or GIFs showing the feature works
 
 4. **Write verification evidence:**
-   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC:
+   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, plus one line per premortem failure mode:
 
    ```jsonl
    {"ac": "AC1: Description", "result": "pass", "evidence": "Screenshot shows toast after save", "method": "visual"}
    {"ac": "AC2: Description", "result": "fail", "evidence": "Button not visible on mobile viewport", "method": "visual"}
    {"ac": "AC3: Description", "result": "pass", "evidence": "Test suite passes, grep confirms handler exists", "method": "programmatic"}
    {"ac": "AC4: Description", "result": "needs_human", "evidence": "Cannot verify email delivery — needs manual check", "method": "none"}
+   {"premortem": "Stockout months miscount for backorder SKUs", "outcome": "did_not_occur", "evidence": "Spot-checked 5 backorder SKUs — counts match expected", "method": "programmatic"}
+   {"premortem": "Cache key collision when promoting a batch", "outcome": "occurred", "evidence": "Stale value returned for SKU-123 on first promotion — mitigation not applied", "method": "visual"}
    ```
 
-   Valid results: `pass`, `fail`, `needs_human`
+   Valid AC results: `pass`, `fail`, `needs_human`
+   Valid premortem outcomes: `did_not_occur`, `early_warning`, `occurred`, `unverifiable`
    Valid methods: `visual`, `programmatic`, `both`, `none`
+
+   If a premortem prediction `occurred`, witnessing fails regardless of AC pass-rate — the predicted mitigation was not applied or the spec missed the underlying issue. Treat `early_warning` as a yellow flag: pass possible, but call it out explicitly in the report.
 
 5. **Update tracking.md:**
    Check off completed AC items and update the Witness section checkboxes.
 
-6. **If all AC pass:**
+6. **If all AC pass AND no premortem prediction `occurred`:**
    - Flip the label:
      ```bash
      gh issue edit $ARGUMENTS --remove-label "dev/implement" --add-label "review"
@@ -67,14 +74,16 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 
      {Summary of verification — pass/fail per AC, links to visual evidence}
 
+     **Premortem check:** {For each predicted failure mode, note outcome — did_not_occur / early_warning / occurred / unverifiable — with one-line evidence. If trivial ticket had no premortem items, write \"N/A — no significant failure modes predicted.\"}
+
      Ready for review."
      ```
 
-7. **If any AC fail:**
+7. **If any AC fail OR any premortem prediction `occurred`:**
    Do NOT flip the label. Report the failures clearly:
-   - What failed
+   - What failed (which AC, or which premortem prediction)
    - What you observed vs what was expected
-   - Whether this is a code bug or a spec issue
+   - Whether this is a code bug, a spec issue, or a missed mitigation (premortem named it; implementation didn't apply the fix)
 
 8. **Present the verification summary** with visual evidence (reference screenshots/GIFs). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
 

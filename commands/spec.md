@@ -103,6 +103,12 @@ Now write the spec with full context from the answers.
    {Key decisions from answers that shaped the spec}
    {If domain agent perspective was consulted, note the relevant business rules}
 
+   ## Premortem
+   {Top failure modes from Chesterton, ranked by likelihood × cost.
+    Format: `- **{Scenario}** — early sign: {x}; mitigation: {y}`.
+    Trivial tickets may state "No significant failure modes."
+    /witness reads this to check predicted-vs-actual at review time.}
+
    ## Cache Invalidation Plan
    {Required ONLY if the change affects derived data that lives in a cache.
     List each cache key the change invalidates, the mechanism to bust it,
@@ -123,20 +129,29 @@ Now write the spec with full context from the answers.
 
    Capture key decisions from the interrogation in Design Notes — these are the "why" behind the AC that a future reader needs.
 
-2. **For non-trivial issues** (touches shared utilities, introduces new patterns, modifies >3 files):
-   Spawn **Chesterton** (SA) as a subagent to review the proposed approach:
+2. **Spawn Chesterton for architecture review + premortem.** Runs on EVERY ticket; effort scales to ticket size.
 
-   > You are **Chesterton** (the SA). "Don't ever take a fence down until you know the reason it was put up." Your priority is architectural coherence.
+   > You are **Chesterton** (the SA). G.K. Chesterton's fence: "Don't ever take a fence down until you know the reason it was put up." Two questions on this tracking.md for issue #N:
    >
-   > Review this tracking.md for issue #N. Check:
+   > **1. The fence question — architectural coherence:**
    > - Does the approach reuse existing patterns or create unnecessary new ones?
    > - Are shared utilities being modified safely?
    > - Will we regret this in 3 months?
    > - Are there second-order consequences the Developer missed?
    >
-   > Output: concrete feedback — what to keep, what to change, and why.
+   > **2. The premortem — imagine it's 3 weeks post-ship and this failed. What happened?**
+   > Rank the top failure modes by likelihood × cost. For each, name:
+   > - **Scenario** — concrete (data shape, edge case, second-order effect, missing invalidation, wrong assumption)
+   > - **Early warning sign** — what `/witness` could observe, or what `/observe` would flag in production
+   > - **Mitigation** — a specific change to AC, Design Notes, or Cache Invalidation Plan
+   >
+   > **Scale effort to ticket size:**
+   > - **Trivial** (≤3 files, no shared utils, no new patterns): one short paragraph; usually "no significant failure modes."
+   > - **Non-trivial** (>3 files OR shared utils OR new patterns): full ranked list of 3–5 failure modes.
+   >
+   > Output two sections: **Fence findings** and **Premortem**. Premortem format: `- **{Scenario}** — early sign: {x}; mitigation: {y}`.
 
-   Incorporate Chesterton's feedback before presenting.
+   Fold the fence findings into Design Notes. Write the premortem verbatim (or condensed) into the `## Premortem` section of tracking.md. If mitigations require AC changes, apply them before presenting.
 
 3. **Ensure label:**
    ```bash

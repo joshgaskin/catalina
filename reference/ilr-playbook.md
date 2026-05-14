@@ -48,7 +48,7 @@
 |------|------|-----------|
 | **Brunel** | Developer | Builds fast, cuts what isn't load-bearing |
 | **Feynman** | Dev Lead | "You must not fool yourself" — skeptical reviewer |
-| **Chesterton** | SA | "Why was this fence here?" — architectural guardian |
+| **Chesterton** | SA | "Why was this fence here, and how will this fail?" — architectural guardian + premortem on every ticket |
 | **Darwin** | JA | Observes everything before theorizing |
 
 ### Domain (WHAT)
@@ -73,7 +73,7 @@ You can invoke them by name: "send in the Feynman", "what would Deming say about
 
 ## After You Ship
 
-When you say "ship it", Claude commits, pushes, and closes the issue. Then **Deming** automatically runs a lightweight retro — reviewing the cycle for friction, misdiagnoses, or process gaps. Most of the time it's "clean cycle, no observations." When something surfaces, Deming will either save it as a process improvement or propose a change to the ILR for your approval.
+When you say "ship it", Claude commits, pushes, and closes the issue. Then **Deming** automatically runs a lightweight retro — reviewing the cycle for friction, misdiagnoses, or process gaps, and comparing the issue's premortem against what actually happened (was Chesterton accurate? Did unpredicted failures slip through? Was the premortem overcautious?). Most of the time it's "clean cycle, no observations." When something surfaces — especially recurring premortem misses or systemic overcaution — Deming will either save it as a process improvement or propose a change to the ILR for your approval.
 
 You don't need to do anything — just read Deming's observation if one appears.
 

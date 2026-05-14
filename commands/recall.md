@@ -98,6 +98,7 @@ If there are 3 or more observations, provide a one-paragraph synthesis:
 - What patterns emerge? (recurring failure types, same agent, same phase)
 - What should the current agent watch out for?
 - Any observations that suggest a rule change to CLAUDE.md?
+- **Post-ship retro (Deming):** Read the issue's `## Premortem` section in tracking.md and the premortem rows in `verification.jsonl`. Score each predicted failure as `accurate` (it occurred and the mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring misses or systemic overcaution = propose a rule change.
 
 Keep the synthesis brief — 2-4 sentences max.
 
