@@ -56,14 +56,18 @@ Work flows through GitHub Issues with labels encoding state. Full system design:
 
 **Flow:** Create -> `/spec` (dev/design) -> Josh approves -> implement (dev/implement) -> `/witness` (review) -> Josh ships -> Deming retro
 
+**"Ship it" means merge to remote `main` immediately** — not just pushing a branch or opening a PR.
+
 **Always (any change, any size):**
 - Visually verify every change in the browser before declaring done
 - Git history is the memory — no parallel tracking systems
+- Update the project's `RELEASE_NOTES.md` (where it keeps one) in the **same commit** as the change — never a follow-up commit
 
 **ILR issues (complex work, Josh creates an issue or says /spec):**
 - `/witness` is mandatory — never skip it, never ask to skip it
 - Commits on `issue-*` branches must include `Refs #N` or `Closes #N` (hook-enforced)
 - Branch from `main` as `issue-{N}-brief-slug`
+- **ALWAYS work in a dedicated git worktree** at `.claude/worktrees/issue-{N}` — never the main repo dir, since parallel Claude sessions step on each other. Create with `git worktree add .claude/worktrees/issue-{N} issue-{N}-brief-slug` and symlink the project's env file (e.g. `.env.local`) into it. Remove with `git worktree remove .claude/worktrees/issue-{N}` once merged.
 - Tracking artifacts: `.claude/tracking/issue-{N}/tracking.md` + `verification.jsonl`
 - After "ship it": Deming reviews the cycle for process gaps
 
