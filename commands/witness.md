@@ -17,6 +17,11 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 
 ## Steps
 
+0. **Preflight — confirm the gate is live.** Check that `witness-gate.js` is registered as a
+   PreToolUse(Bash) hook in `.claude/settings.json`. If it is NOT, warn loudly: the
+   `dev/implement → review` flip won't be enforced this session, so you are back on the honor
+   system. (`install.sh` wires it automatically; a hand-install may not have.)
+
 1. **Read the spec:**
    Read `.claude/tracking/issue-$ARGUMENTS/tracking.md`. Understand the Definition of Done and every Acceptance Criterion. If anything in the AC is vague, flag it.
 
@@ -32,6 +37,14 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 3. **Go to the gemba — visual verification via browser:**
    This is the core of witnessing. Open the deployed site (staging or localhost) using browser automation tools.
 
+   **Independence (when any AC is observable):** spawn **Feynman as a separate subagent** for this
+   step — seeded with ONLY the tracking.md and how to reach the running app, never the
+   implementation transcript. Its tool grant MUST explicitly include the `mcp__claude-in-chrome__*`
+   set (subagents do NOT inherit this command's allowed-tools). Feynman classifies each AC as
+   `observable` or not, drives the flow, and saves each artifact under
+   `.claude/tracking/issue-{N}/evidence/`. **If the browser tools aren't available, HALT** and
+   report "cannot witness — no browser"; never downgrade a UI AC to programmatic and call it a pass.
+
    a. Call `mcp__claude-in-chrome__tabs_context_mcp` first to see current browser state
    b. Navigate to the relevant pages using `mcp__claude-in-chrome__navigate` or `mcp__claude-in-chrome__tabs_create_mcp`
    c. For each AC that has a visual component:
@@ -46,17 +59,26 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, plus one line per premortem failure mode:
 
    ```jsonl
-   {"ac": "AC1: Description", "result": "pass", "evidence": "Screenshot shows toast after save", "method": "visual"}
-   {"ac": "AC2: Description", "result": "fail", "evidence": "Button not visible on mobile viewport", "method": "visual"}
-   {"ac": "AC3: Description", "result": "pass", "evidence": "Test suite passes, grep confirms handler exists", "method": "programmatic"}
-   {"ac": "AC4: Description", "result": "needs_human", "evidence": "Cannot verify email delivery — needs manual check", "method": "none"}
-   {"premortem": "Stockout months miscount for backorder SKUs", "outcome": "did_not_occur", "evidence": "Spot-checked 5 backorder SKUs — counts match expected", "method": "programmatic"}
+   {"ac": "AC1: dashboard renders total with toast", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "Screenshot shows total + success toast"}
+   {"ac": "AC2: api handler returns 200", "result": "pass", "method": "programmatic", "observable": false, "observable_reason": "backend-only, no UI surface", "evidence": "curl shows 200 + body"}
+   {"ac": "AC3: mobile button visible", "result": "fail", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac3.png", "evidence": "Button clipped on 375px viewport"}
+   {"ac": "AC4: welcome email delivered", "result": "needs_human", "method": "none", "evidence": "Cannot check inbox — human must confirm receipt at test@example.com"}
    {"premortem": "Cache key collision when promoting a batch", "outcome": "occurred", "evidence": "Stale value returned for SKU-123 on first promotion — mitigation not applied", "method": "visual"}
    ```
 
-   Valid AC results: `pass`, `fail`, `needs_human`
-   Valid premortem outcomes: `did_not_occur`, `early_warning`, `occurred`, `unverifiable`
-   Valid methods: `visual`, `programmatic`, `both`, `none`
+   **Schema — enforced by `hooks/lib/verify-witness.js` (the gate hook AND `/groom` both run it; it is not optional):**
+   - `observable` (bool, **default true**): does this AC have a visible surface? An observable AC
+     MUST be `method` `visual`/`both` with an `artifact` file that exists on disk (>1KB, and not
+     byte-identical to another AC's). **No artifact, no pass.**
+   - `observable: false` requires a non-empty `observable_reason`; the gate rejects `observable:false`
+     on AC text that reads like UI work — you can't opt out of visual proof by mislabeling.
+   - `artifact`: repo-relative path to the screenshot/GIF/output for this AC (save under
+     `.claude/tracking/issue-{N}/evidence/`).
+   - **`pass` + `method:"none"` is banned** — that's a claim, not evidence.
+   - `needs_human`: name what a human must do and why. It does NOT block reaching `review` (that's
+     where the human looks), but it DOES block auto-ship.
+   - Valid AC results: `pass`, `fail`, `needs_human`. Methods: `visual`, `programmatic`, `both`,
+     `none`. Premortem outcomes: `did_not_occur`, `early_warning`, `occurred`, `unverifiable`.
 
    If a premortem prediction `occurred`, witnessing fails regardless of AC pass-rate — the predicted mitigation was not applied or the spec missed the underlying issue. Treat `early_warning` as a yellow flag: pass possible, but call it out explicitly in the report.
 
@@ -68,6 +90,9 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
      ```bash
      gh issue edit $ARGUMENTS --remove-label "dev/implement" --add-label "review"
      ```
+     The `witness-gate` hook re-runs the validator on this exact command — if any evidence is
+     missing/fake it BLOCKS the flip (exit 2). That's expected: fix the evidence, don't reach for
+     `CATALINA_WITNESS_ALLOW=1` unless you genuinely must.
    - Post a verification summary as an issue comment:
      ```bash
      gh issue comment $ARGUMENTS --body "## Witness Report

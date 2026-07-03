@@ -39,9 +39,20 @@ Triage open GitHub issues and present a dashboard.
    ```
    If observations exist, count them by type (failure/success/friction/insight) for the dashboard indicator.
 
-4. **If a specific issue number was provided** ($ARGUMENTS), focus the deep dive on that issue — show full tracking.md status, recent activity, and recommended next step.
+4. **Witness-evidence sweep (the enforcement guarantee).** For every issue currently labelled
+   `review`, run the shared validator. This catches issues that reached `review` by ANY path —
+   the `gh` Bash gate, the GitHub MCP tool, `gh api`, or a human hand — not just the hook's path:
+   ```bash
+   node ~/.claude/hooks/lib/verify-witness.js {N}   # (hooks/lib/verify-witness.js in the Catalina source repo)
+   ```
+   Exit 0 = evidence valid. Exit 1 = **INVALID** — surface it prominently ("#N is in `review` but
+   its verification.jsonl is incomplete or fake: <reasons>") and recommend reverting it to
+   `dev/implement` until it's witnessed for real. This is the layer the label-flip hook can't be
+   routed around.
 
-5. **Present dashboard:**
+5. **If a specific issue number was provided** ($ARGUMENTS), focus the deep dive on that issue — show full tracking.md status, recent activity, and recommended next step.
+
+6. **Present dashboard:**
 
    ```
    ## Review (waiting for witness)
@@ -62,10 +73,10 @@ Triage open GitHub issues and present a dashboard.
    - #22 Bug report from customer — no label, no tracking
    ```
 
-6. **Flag stale reviews:**
+7. **Flag stale reviews:**
    For any issue with the `review` label, check `updatedAt`. If it's been >2 days, mark it as **STALE** in the dashboard. Stale reviews mean witnessing hasn't happened yet — surface them prominently.
 
-7. **Recommend next action** for each issue. Be direct:
+8. **Recommend next action** for each issue. Be direct:
    - "Ready for your witness — review the evidence"
    - "STALE — been in review for X days, needs your attention"
    - "Spec drafted — needs your review"

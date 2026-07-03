@@ -7,7 +7,8 @@
 # What it does:
 #   1. Symlinks commands into .claude/commands/
 #   2. Symlinks ILR reference docs into .claude/reference/
-#   3. Copies Claude Code hooks to ~/.claude/hooks/ (if not already there)
+#   3. Copies Claude Code hooks (+ hooks/lib) to ~/.claude/hooks/ and auto-wires the
+#      witness gate into ~/.claude/settings.json
 #   4. Installs the commit-msg git hook (ILR issue-ref enforcement)
 #   5. Creates the ILR labels (epic, dev/design, dev/implement, review, blocked) via gh
 #   6. Reminds you to add project-specific CLAUDE.md rules
@@ -68,6 +69,37 @@ for hook in "$CATALINA_DIR/hooks/"*.js; do
     echo "  OK   $name (copied)"
   fi
 done
+
+# hooks/lib — shared modules (verify-witness.js, used by witness-gate.js AND /groom)
+if [ -d "$CATALINA_DIR/hooks/lib" ]; then
+  mkdir -p "$HOOKS_DIR/lib"
+  cp "$CATALINA_DIR/hooks/lib/"*.js "$HOOKS_DIR/lib/" 2>/dev/null && echo "  OK   lib/ (shared hook modules)"
+fi
+
+# --- Auto-wire the witness gate into settings.json (idempotent) ---
+# Makes the "witness is enforced" claim true by default instead of a dormant reminder.
+SETTINGS="$HOME/.claude/settings.json"
+if command -v node >/dev/null 2>&1; then
+  echo "Wiring witness-gate.js into $SETTINGS..."
+  SETTINGS_PATH="$SETTINGS" node <<'NODE' || echo "  warn: could not wire witness-gate (edit settings.json manually)"
+const fs = require("fs"), path = require("path");
+const p = process.env.SETTINGS_PATH;
+let s = {};
+try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+s.hooks = s.hooks || {};
+s.hooks.PreToolUse = s.hooks.PreToolUse || [];
+if (JSON.stringify(s.hooks.PreToolUse).includes("witness-gate.js")) {
+  console.log("  OK   witness-gate already wired");
+} else {
+  s.hooks.PreToolUse.push({ matcher: "Bash", hooks: [ { type: "command", command: "node ~/.claude/hooks/witness-gate.js" } ] });
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+  console.log("  OK   witness-gate wired into PreToolUse(Bash)");
+}
+NODE
+else
+  echo "  SKIP witness-gate wiring (node not found) — add it to $SETTINGS manually"
+fi
 
 # --- Git commit-msg hook (ILR issue-ref enforcement) ---
 echo "Installing commit-msg git hook..."

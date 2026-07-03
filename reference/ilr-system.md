@@ -243,11 +243,16 @@ When agents know their past failures are visible and queryable, they behave bett
 
 One JSON line per AC:
 ```jsonl
-{"ac": "AC1: Description", "result": "pass", "evidence": "...", "method": "visual"}
+{"ac": "AC1: Description", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "..."}
 ```
 
 Valid results: `pass`, `fail`, `needs_human`
 Valid methods: `visual`, `programmatic`, `both`, `none`
+
+`observable` (default true) marks AC with a visible surface; an observable AC must be
+`visual`/`both` with an on-disk `artifact` (>1KB, unique) or the witness gate blocks the
+`review` flip. `observable:false` needs an `observable_reason` and is rejected on UI-sounding
+AC. `pass`+`method:none` is banned. See `hooks/lib/verify-witness.js` for the enforced rules.
 
 ---
 
@@ -303,7 +308,11 @@ An issue that can't be definitively closed is a bad issue.
 
 1. **Label lifecycle** — labels encode state transitions, managed by Claude
 2. **Commit-msg hook** — rejects commits without issue refs on `issue-*` branches
-3. **Witness is mandatory** — never skip `/witness`, never ask to skip it
+3. **Witness is mandatory + enforced** — never skip `/witness`. The `dev/implement → review`
+   flip is gated: `hooks/witness-gate.js` (PreToolUse, defense-in-depth on the `gh` Bash path)
+   and the `/groom` witness sweep (the real guarantee — revalidates every `review` issue no
+   matter how it was labelled) both run `hooks/lib/verify-witness.js`, which blocks any issue
+   whose `verification.jsonl` is incomplete or whose observable-AC artifacts are missing/fake
 4. **Deming retro** — after every "ship it"/"go", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
 
