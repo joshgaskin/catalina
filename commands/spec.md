@@ -136,6 +136,11 @@ Now write the spec with full context from the answers.
    - [ ] Implementation complete
    - [ ] Deployed to staging
    - [ ] Witnessed on staging
+
+   ## Pipeline State
+   - Current phase: spec / awaiting approval
+   - Next agent: Brunel (implement) on approval
+   - Bounce count: 0
    ```
 
    Every AC must be specific and testable. "Works correctly" is not an AC. "Clicking Save persists the record and shows a success toast" is.
@@ -189,3 +194,10 @@ Now write the spec with full context from the answers.
    If the issue already has `Epic: #{N}` in its body, do not duplicate it — just append the Tracking section. If there is no epic, omit the Epic line.
 
 7. **Present — lead with a TL;DR in chat.** Open the presentation message with 2–3 sentences at the product level: what changes for the user or the business, why it matters, and what "done" looks like at a glance — no implementation detail, so the reader can decide without opening the full doc. **The TL;DR lives in the chat message, NOT in tracking.md** (the doc stays the developer's detail). Then show/link the full tracking.md for anyone who wants it, and ask for review — "Approved" to proceed, or push back on anything.
+
+   **On "approved" → begin implementation immediately** — the pipeline self-drives, no separate
+   command (see the Auto-Handoff Pipeline in `reference/ilr-system.md`). The only proceed word at
+   this gate is "approved"; **"go"/"ship" belongs to the ship gate, not here.** Treat a same-turn
+   follow-up (extra AC, "oh also…", `/capture`) as an **amend, not a proceed**, and emit a one-line
+   "starting implementation — last call to amend" before you begin. Update the tracking.md
+   `## Pipeline State` block at the handoff (phase → implement, next agent → Feynman for witness).

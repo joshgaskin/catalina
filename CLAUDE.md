@@ -58,6 +58,8 @@ Work flows through GitHub Issues with labels encoding state. Full system design:
 
 **"Ship it" — or just "Go" — means merge to remote `main` immediately** — not just pushing a branch or opening a PR. "Ship", "ship it", and "go" are interchangeable ship triggers.
 
+**The pipeline self-drives between two gates.** Josh decides at exactly two points — **approve the spec** and **ship ("go")**. On "approved", implementation starts automatically → `/witness` runs automatically → it stops for the ship decision. "Approved" is the only proceed word at the spec gate; **"go" means ship and is valid only at the ship gate.** On witness failure the pipeline auto-loops back — bounded to 2 bounces (counted from committed history), then escalates — and `CATALINA_WITNESS_ALLOW` is never a loop exit. Full design: `.claude/reference/ilr-system.md` (Auto-Handoff Pipeline). **Never idle without handoff:** an agent ends a turn by handing off to the next agent, escalating via `AskUserQuestion`, or posting a completion report — never a silent stop.
+
 **Always (any change, any size):**
 - Visually verify every change in the browser before declaring done
 - Git history is the memory — no parallel tracking systems

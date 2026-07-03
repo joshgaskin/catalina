@@ -59,6 +59,20 @@ You can invoke them by name: "send in the Feynman", "what would Deming say about
 
 ---
 
+## Completion Report Contract (implementer subagents)
+
+Paste this block verbatim at the end of every implementation-subagent prompt — an agent that
+ends its turn with no report is a failed task, not a finished one:
+
+> Your FINAL message must be the completion report: files changed, tests written/run (verbatim
+> counts), deviations from tracking.md with justification, and anything you could not verify. Do
+> not go idle without sending it — an ended turn with no report is a failed task.
+
+This is the baton-pass: the next agent (or the resuming session) picks up from this report. No
+report = a dropped baton = a stalled pipeline.
+
+---
+
 ## Labels Cheat Sheet
 
 | You'll see | It means | Your move |

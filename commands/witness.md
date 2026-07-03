@@ -110,6 +110,19 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    - What you observed vs what was expected
    - Whether this is a code bug, a spec issue, or a missed mitigation (premortem named it; implementation didn't apply the fix)
 
+   **Auto-route (bounded) — the pipeline self-corrects without stopping, but routes by red-state:**
+   - **Gate BLOCK / missing evidence** (witness-gate exited 2, or an observable AC has no artifact):
+     the *evidence* is the problem, not the code — gather/repair the artifacts and **re-witness**.
+     Do NOT re-implement, and **never** set `CATALINA_WITNESS_ALLOW` to force the flip — the override
+     is not a loop exit.
+   - **AC fail** (behavior is wrong): hand back to Brunel to **re-implement**, then re-witness.
+   - **Bound:** 2 bounces, counted from `## Review History` / `verification.jsonl` fail-lines (not a
+     number you increment yourself). On the 3rd failure, STOP and escalate to the human with a
+     diagnosis — escalation is the only sanctioned exit. Log the bounce in `## Review History` and
+     update `## Pipeline State`.
+
 8. **Present the verification summary** with visual evidence (reference screenshots/GIFs). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
 
-   Review the evidence and decide: "ship it" / "go" or push back.
+   Update `## Pipeline State` (phase → witness complete / awaiting ship; next agent → —). This is
+   the second and final human gate: review the evidence and decide — "ship it" / "go" (merge to
+   `main` + retro) or push back.

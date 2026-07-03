@@ -63,6 +63,45 @@ Labels encode state. The label IS the status — no board needed.
 
 ---
 
+## Auto-Handoff Pipeline
+
+The ILR self-drives between phases. The human decides at exactly **two gates**; everything
+between them is automatic.
+
+```
+spec ──approve──▶ implement ──done──▶ witness ──pass──▶ SHIP GATE ──"go"──▶ merge + retro
+  ▲                                      │
+  └──────────── bounce (bounded 2×) ◀────┘
+```
+
+- **Human gate 1 — approve the spec.** At the spec gate the only proceed word is **"approved"**.
+  On approval, implementation begins immediately (no separate command); a resumer/parallel session
+  enters the issue's worktree per the worktree rule. A same-turn follow-up (an extra AC, "oh also…",
+  `/capture`) is an **amend, not a proceed** — the transition emits a one-line "starting
+  implementation — last call to amend" so the old approve-then-a-beat pause survives.
+- **Automatic — implement → witness.** When implementation reports complete (see the Completion
+  Report Contract in the playbook), `/witness` runs automatically.
+- **Automatic — routing on failure (bounded, split by red-state):**
+  - **Witness-gate BLOCK** (exit 2 — evidence missing/fake): gather/repair the evidence and
+    **re-witness**. Do NOT re-implement, and **never** use `CATALINA_WITNESS_ALLOW` to escape — the
+    override is not a loop exit; any use is logged to the issue.
+  - **AC FAIL** (wrong code): **re-implement**, then re-witness.
+  - The bound is **2 bounces**, counted from committed ground truth (`## Review History` entries /
+    `verification.jsonl` fail-lines), not a self-incremented field. On the 3rd failure, STOP and
+    escalate to the human with a diagnosis — escalation is the only sanctioned exit from a failing loop.
+- **Human gate 2 — ship ("go").** Witness pass → present evidence and stop. "go"/"ship" is valid
+  **only here**, and means merge to `main` + retro.
+
+**Pipeline State is advisory; ground truth is authoritative.** The `## Pipeline State` block in
+tracking.md lets a compacted/resumed session see the current phase, next agent, and bounce count —
+but on resume, reconcile it against ground truth (labels + `verification.jsonl` + `git log --grep`)
+and, on conflict, trust ground truth. Never skip witness or re-run a phase on the state block alone.
+
+**One active pipeline per issue.** Two sessions auto-driving the same issue race on labels and
+Pipeline State — keep it single-writer.
+
+---
+
 ## Agent System
 
 ### Design: Separate Concerns via Personas
@@ -237,6 +276,11 @@ When agents know their past failures are visible and queryable, they behave bett
 - [ ] Implementation complete
 - [ ] Deployed to staging
 - [ ] Witnessed on staging
+
+## Pipeline State
+- Current phase: {spec | implement | witness | ship}
+- Next agent: {Brunel | Feynman | — }
+- Bounce count: 0   (witness→implement bounces; derived from Review History — advisory, reconcile against ground truth on resume)
 ```
 
 ### verification.jsonl Format
@@ -315,6 +359,12 @@ An issue that can't be definitively closed is a bad issue.
    whose `verification.jsonl` is incomplete or whose observable-AC artifacts are missing/fake
 4. **Deming retro** — after every "ship it"/"go", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
+6. **Never idle without handoff** — an agent ends a turn by handing off to the next agent,
+   escalating via `AskUserQuestion`, or posting a completion report. A silent end is a stalled
+   pipeline. This is a convention that makes stalls *detectable on resume* (Pipeline State names a
+   next agent with no following commit), not a mechanical guarantee.
+7. **Auto-handoff routing** — the pipeline self-routes green→ship-gate / red→bounded loop (see
+   Auto-Handoff Pipeline). `CATALINA_WITNESS_ALLOW` is never a loop exit; escalation to the human is.
 
 ---
 

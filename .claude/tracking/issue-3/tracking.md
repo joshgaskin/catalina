@@ -1,30 +1,30 @@
 # Issue #3: Make the ILR hand off between agents seamlessly without stalling
 
 ## Definition of Done
-- [ ] `reference/ilr-playbook.md` carries the **Completion Report Contract** for implementer
+- [x] `reference/ilr-playbook.md` carries the **Completion Report Contract** for implementer
       subagents (paste-verbatim block).
-- [ ] `reference/ilr-system.md` has an **Auto-Handoff Pipeline** section (full flow, two human
+- [x] `reference/ilr-system.md` has an **Auto-Handoff Pipeline** section (full flow, two human
       gates, bounded-retry-on-fail) and a **Never idle without handoff** guardrail.
-- [ ] The tracking.md template (in both `ilr-system.md` and `commands/spec.md`) gains a
+- [x] The tracking.md template (in both `ilr-system.md` and `commands/spec.md`) gains a
       **`## Pipeline State`** block; `spec.md`/`witness.md` update it at transitions.
-- [ ] `commands/spec.md` auto-begins implementation on approval; `commands/witness.md` routes on
+- [x] `commands/spec.md` auto-begins implementation on approval; `commands/witness.md` routes on
       pass (→ ship gate) vs fail (→ bounded auto-loop back to implement).
-- [ ] `CLAUDE.md` states the two human gates + the never-idle rule.
+- [x] `CLAUDE.md` states the two human gates + the never-idle rule.
 
 ## Acceptance Criteria
 
-- [ ] AC1: `reference/ilr-playbook.md` contains a **Completion Report Contract** to paste at the
+- [x] AC1: `reference/ilr-playbook.md` contains a **Completion Report Contract** to paste at the
       end of every implementer-subagent prompt: final message = files changed, tests written/run
       (verbatim counts), deviations from tracking.md with justification, and anything unverified;
       "an ended turn with no report is a failed task."
-- [ ] AC2: `reference/ilr-system.md` has an **Auto-Handoff Pipeline** section naming the **only two
+- [x] AC2: `reference/ilr-system.md` has an **Auto-Handoff Pipeline** section naming the **only two
       human gates** (approve spec, ship) with every other transition automatic. **Gate-word
       discipline (Chesterton):** at the spec gate the sole proceed trigger is **"approved"**; **"go"/
       "ship" is valid ONLY at the ship gate** (never overload "go" to mean start-building). A
       same-turn follow-up after "approved" (an extra AC, "oh also…", `/capture`) is an **amend, not a
       proceed** — the approval→implement transition emits a one-line "starting implementation — last
       call to amend" so the old approve-then-a-beat pause is preserved cheaply.
-- [ ] AC3: **Bounded retry — split by red-state, honest about the bound (Chesterton).** Two failures
+- [x] AC3: **Bounded retry — split by red-state, honest about the bound (Chesterton).** Two failures
       are different and route differently: a **witness-gate block (exit 2)** = evidence missing/fake →
       **gather/repair evidence and re-witness** (NOT re-implement); a **`/witness` AC fail** = wrong
       code → **re-implement**. The bound is **derived from committed ground truth** (count `## Review
@@ -33,24 +33,24 @@
       NEVER a loop exit** — escalation to the human is the only sanctioned exit, and any override use
       is logged to the issue. (Mechanical enforcement of the bound is a candidate follow-up hook, not
       claimed here.)
-- [ ] AC4: A **`## Pipeline State`** block (current phase · next agent · bounce count) is added to the
+- [x] AC4: A **`## Pipeline State`** block (current phase · next agent · bounce count) is added to the
       tracking.md template in BOTH `reference/ilr-system.md` and `commands/spec.md`; `spec.md` and
       `witness.md` update it at their transition. **It is ADVISORY, not authoritative (Chesterton):**
       on resume, reconcile it against ground truth (labels + `verification.jsonl` + `git log --grep`),
       and **when they conflict, ground truth wins** — never re-run or skip a phase (especially witness)
       on the state block alone.
-- [ ] AC5: **Never idle without handoff** appears in `CLAUDE.md` + `reference/ilr-system.md` guardrails,
+- [x] AC5: **Never idle without handoff** appears in `CLAUDE.md` + `reference/ilr-system.md` guardrails,
       framed honestly: an agent should hand off, escalate via `AskUserQuestion`, or post a completion
       report. This is a **convention that makes a stall detectable on resume** (Pipeline State names a
       next agent with no commit following), NOT a mechanically enforced guarantee — say so.
-- [ ] AC6: **Single active pipeline per issue + worktree transition (Chesterton).** State the
+- [x] AC6: **Single active pipeline per issue + worktree transition (Chesterton).** State the
       invariant: one active pipeline per issue. Define worktree creation/entry as part of the
       approval→implement transition (per CLAUDE.md's worktree rule), so state is written on the issue
       branch and a resumer reconciles against ground truth rather than trusting `main`'s stale copy.
-- [ ] AC7: `commands/spec.md` step 7 begins implementation immediately on "approved" (no separate
+- [x] AC7: `commands/spec.md` step 7 begins implementation immediately on "approved" (no separate
       command); `commands/witness.md` presents for ship on pass and routes per AC3 on fail — both
       updating Pipeline State.
-- [ ] AC8: No regression / internal consistency — the auto-router respects the #2 gate (green → ship
+- [x] AC8: No regression / internal consistency — the auto-router respects the #2 gate (green → ship
       gate; gate-block → evidence-repair loop; AC-fail → re-implement loop); `witness` stays mandatory;
       the override is never a loop exit; playbook, system, and CLAUDE.md agree.
 
@@ -92,9 +92,9 @@ state artifact that make the behavior legible and resumable, not a daemon. Call 
 `commands/witness.md` (+routing, +state update), `CLAUDE.md` (+gates, +never-idle).
 
 ## Pipeline State
-- Current phase: **spec / awaiting approval**
-- Next agent: Brunel (implement) on approval
-- Retry count: 0
+- Current phase: **witness complete / awaiting ship**
+- Next agent: — (human ship gate)
+- Bounce count: 0
 
 ## Premortem
 (Chesterton, ranked by likelihood × cost)
@@ -128,7 +128,7 @@ None — docs/convention + tracking-template change.
 {Empty.}
 
 ## Witness
-- [ ] Spec approved
-- [ ] Implementation complete
-- [ ] Deployed / runnable
-- [ ] Witnessed
+- [x] Spec approved
+- [x] Implementation complete
+- [x] Deployed / runnable
+- [x] Witnessed
