@@ -83,7 +83,45 @@ propose it as a **foundation revision routed back through `/foundation`**, not a
    `/foundation`). Present them; apply **only on approval** — never auto-rewrite. Pre-code extractions
    are provisional until a second real usage is built.
 
-This is optional and greenfield-only — a small project with a handful of specs doesn't need it. It
-operationalizes the "reuse shared components" convention as a scheduled step, not a hope. (The same
-reductive move generalizes to epics over sibling issues — see the epic-distill follow-up — but this
-command is the greenfield pass.)
+The **greenfield** pass above is optional — a small project with a handful of specs doesn't need it. It
+operationalizes the "reuse shared components" convention as a scheduled step, not a hope.
+
+---
+
+## Epic mode — `/distill --epic {N}`
+
+Everything above is the **greenfield** pass over a whole, stable plan. **Epic mode is different — do NOT
+carry the greenfield precondition or the extract lens into it.** (It runs at trunk-first, where code may
+not exist and the plan is deliberately partial.)
+
+**When.** At the **trunk-first proof-point boundary**: after `/spec`-ing the 2–3 siblings toward a proof
+point, before they're built. **Stability is NOT expected** — trunk-first creates only 2–3 issues at a
+time, so greenfield's "substantially all spec'd and stable" is false by design. Trigger: **≥2
+spec-approved-or-near siblings** toward the proof point (NOT the greenfield ≥3/stable gate).
+
+**Corpus — anchored discovery, honest about gaps.** Find siblings by exact epic linkage, not full-text
+search:
+```bash
+# keep open issues whose body carries an exact `Epic: #{N}` line
+gh issue view {k} --json body -q .body | grep -oP 'Epic: #\K[0-9]+'   # == N ?
+```
+Do NOT use `gh search issues "Epic: #{N}"` — `#{N}` substring-matches `#12` / `#15`. List the discovered
+sibling set back to the human and warn: **"corpus may be incomplete — un-spec'd (no `Epic:` line yet) and
+closed siblings are excluded."**
+
+**Single-writer safety.** Enumerate each sibling's state FIRST. Edit only siblings still in `dev/design`.
+**Abort with a report** if any target sibling is `dev/implement`, has an open `.claude/worktrees/issue-{k}`,
+or the set spans phases — never rewrite an in-flight sibling's tracking.md (one active pipeline per issue;
+the worktree rule).
+
+**Lenses — extract is DEMOTED to a watchlist (the key divergence).** At trunk-first there is no built
+code, so distill's own WET-before-DRY rule ("extract at the second real build") makes extraction premature
+by construction:
+- **Simplify** and **consolidate-observations** across the siblings → actionable proposals (report +
+  approval; single-writer-of-foundations preserved).
+- **Extract-as-shared-module** → **watchlist only**: record each candidate shared shape as "revisit at the
+  proof point / second real build," NEVER a coupling edit now. A failed proof point should cost a 2–3 item
+  pivot, not the unwind of a premature abstraction.
+
+Persona (Alexander) and the never-write-`foundations.md` discipline are unchanged. Only the *timing*
+forbids extraction — the reductive move is the same; at trunk-first it *flags*, it does not *couple*.

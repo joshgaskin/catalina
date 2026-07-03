@@ -331,6 +331,12 @@ When decomposing an epic into sub-issues, don't plan the full tree upfront. Crea
 
 After the proof point resolves: decompose the next 2-3 issues. If it fails: pivot, blast radius limited to 2-3 items.
 
+**Epic distill at the boundary.** Once the 2–3 siblings toward a proof point are spec'd (before build),
+`/distill --epic {N}` (Alexander) does a reductive pass over them — but because trunk-first deliberately
+withholds the final shape, it only **simplifies** and **flags shared-shape candidates on a watchlist**
+("revisit at the proof point / second real build"); it does NOT extract shared modules (that would couple
+what a failed proof might pivot away from) and touches only `dev/design` siblings.
+
 ---
 
 ## Sub-Issue Quality Criteria
@@ -348,7 +354,7 @@ An issue that can't be definitively closed is a bad issue.
 | Command | Agent | Purpose |
 |---------|-------|---------|
 | `/foundation [tier]` | Chesterton | Lock day-zero decisions (see `reference/greenfield-foundations.md`) at project start |
-| `/distill` | Alexander | Holistic reductive pass over a greenfield plan — simplify / consolidate / extract shared modules |
+| `/distill [--epic N]` | Alexander | Reductive pass: greenfield (whole plan, simplify/consolidate/extract) or `--epic N` (an epic's siblings at trunk-first — watchlist, not extract) |
 | `/spec {N}` | Brunel + Chesterton | Produce tracking.md with DoD + AC + premortem |
 | `/probe {topic}` | Darwin | Deep exploration before design |
 | `/groom [N]` | — | Triage open issues, flag stale reviews (>2 days) |
