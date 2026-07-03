@@ -7,8 +7,10 @@
 # What it does:
 #   1. Symlinks commands into .claude/commands/
 #   2. Symlinks ILR reference docs into .claude/reference/
-#   3. Copies hooks to ~/.claude/hooks/ (if not already there)
-#   4. Reminds you to add project-specific CLAUDE.md rules
+#   3. Copies Claude Code hooks to ~/.claude/hooks/ (if not already there)
+#   4. Installs the commit-msg git hook (ILR issue-ref enforcement)
+#   5. Creates the ILR labels (epic, dev/design, dev/implement, review, blocked) via gh
+#   6. Reminds you to add project-specific CLAUDE.md rules
 
 set -euo pipefail
 
@@ -67,6 +69,42 @@ for hook in "$CATALINA_DIR/hooks/"*.js; do
   fi
 done
 
+# --- Git commit-msg hook (ILR issue-ref enforcement) ---
+echo "Installing commit-msg git hook..."
+if git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  core_hooks_path="$(git -C "$PROJECT_DIR" config --get core.hooksPath || true)"
+  if [ -n "$core_hooks_path" ]; then
+    case "$core_hooks_path" in
+      /*) hooks_dir="$core_hooks_path" ;;
+      *)  hooks_dir="$PROJECT_DIR/$core_hooks_path" ;;
+    esac
+  else
+    # --git-path resolves the real hooks dir even under worktrees/submodules
+    # (where .git is a file, not a directory).
+    hooks_dir="$(git -C "$PROJECT_DIR" rev-parse --git-path hooks)"
+    case "$hooks_dir" in
+      /*) ;;
+      *)  hooks_dir="$PROJECT_DIR/$hooks_dir" ;;
+    esac
+  fi
+  src_hook="$CATALINA_DIR/hooks/commit-msg"
+  target_hook="$hooks_dir/commit-msg"
+  mkdir -p "$hooks_dir"
+  if [ -e "$target_hook" ] && ! cmp -s "$src_hook" "$target_hook"; then
+    echo "  DIFF commit-msg (a different hook is already installed — not overwriting)"
+    echo "       Compare: diff \"$src_hook\" \"$target_hook\""
+    if [ -n "$core_hooks_path" ]; then
+      echo "       Note: core.hooksPath=$core_hooks_path — a hook manager (e.g. Husky) may own this."
+    fi
+  else
+    cp "$src_hook" "$target_hook"
+    chmod +x "$target_hook"
+    echo "  OK   commit-msg -> $target_hook"
+  fi
+else
+  echo "  SKIP commit-msg (not a git repository)"
+fi
+
 # --- Tracking directory ---
 mkdir -p "$PROJECT_DIR/.claude/tracking"
 
@@ -95,10 +133,38 @@ TEMPLATE
   echo "  Created CLAUDE.md — fill in the project-specific section."
 fi
 
+# --- ILR labels (created via gh; runs LAST so a network/auth hiccup can't strand the install) ---
+echo ""
+echo "Creating ILR labels..."
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  # name|color|description  (colors mirror reference/ilr-system.md)
+  ilr_labels=(
+    "epic|8957E5|Business-outcome container"
+    "dev/design|FBCA04|Spec phase"
+    "dev/implement|0E8A16|Build phase"
+    "review|1D76DB|Waiting for witness"
+    "blocked|B60205|External dependency"
+  )
+  for entry in "${ilr_labels[@]}"; do
+    IFS='|' read -r lname lcolor ldesc <<< "$entry"
+    if gh label create "$lname" --color "$lcolor" --description "$ldesc" --force >/dev/null 2>&1; then
+      echo "  OK   $lname"
+    else
+      echo "  warn: could not create label '$lname' (gh error — skipping)"
+    fi
+  done
+else
+  echo "  SKIP labels (gh not found or not authenticated)."
+  echo "       Create manually: epic, dev/design, dev/implement, review, blocked"
+fi
+
 echo ""
 echo "=== POW. ==="
 echo ""
 echo "Catalina is installed. Did we just become best friends?"
+echo ""
+echo "Installed the commit-msg git hook (rejects issue-* commits with no Refs #N)"
+echo "and the ILR labels (if gh was available)."
 echo ""
 echo "Next steps:"
 echo "  1. Fill in project-specific rules in CLAUDE.md"

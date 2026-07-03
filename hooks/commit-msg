@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Catalina ILR — commit-msg hook
+# Rejects commits on issue-* branches that don't reference an issue.
+# Git history is the memory: every commit on an issue branch must link back to its issue.
+#
+# Install: copy into the repo's git-hooks dir (resolve with `git rev-parse --git-path hooks`
+# so it works under worktrees/submodules and honors core.hooksPath) and `chmod +x` it.
+# install.sh does this for you.
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+# Only enforce on issue-* branches.
+case "$branch" in
+  issue-*) ;;
+  *) exit 0 ;;
+esac
+
+msg_file="$1"
+msg="$(cat "$msg_file")"
+
+# Accept: Refs #N / Closes #N / Fixes #N / Resolves #N (case-insensitive).
+if echo "$msg" | grep -qiE '(refs|closes|close|fixes|fix|resolves|resolve)[[:space:]]+#[0-9]+'; then
+  exit 0
+fi
+
+echo "" >&2
+echo "✖ Commit rejected: on an issue-* branch, the message must reference the issue." >&2
+echo "  Add one of: Refs #N | Closes #N | Fixes #N | Resolves #N" >&2
+echo "  (branch: $branch)" >&2
+echo "" >&2
+exit 1

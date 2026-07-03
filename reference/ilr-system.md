@@ -89,7 +89,7 @@ Richard Feynman. "The first principle is that you must not fool yourself — and
 G.K. Chesterton. "Don't ever take a fence down until you know the reason it was put up."
 - Priority: Architectural coherence + risk surfacing. Does this fit the system, and where will it fail?
 - Bias: Long-term thinking. Reuse existing patterns; predict failure modes before they happen.
-- Active during: `/spec` for every ticket — fence question + premortem. Effort scales to ticket size (lite paragraph for trivial, ranked 3–5 failure modes for non-trivial). Premortem findings persist in the `## Premortem` section of tracking.md so Feynman can check them at `/witness` and Deming can compare predicted vs actual at retro.
+- Active during: `/spec` for every ticket — fence question + premortem. Effort scales to ticket size (lite paragraph for trivial, ranked 3–5 failure modes for non-trivial). Premortem findings persist in the `## Premortem` section of tracking.md so Feynman can check them at `/witness` and Deming can compare predicted vs actual at retro. Also owns `/foundation` at project start — the deliberate inverse of the fence question: on a greenfield with no fences yet, Chesterton builds the ones everything else will lean on before any feature is built against them.
 
 **Darwin — JA** (exploration subprocess)
 Charles Darwin. Spent years observing before theorizing. Catalogued everything.
@@ -288,6 +288,7 @@ An issue that can't be definitively closed is a bad issue.
 
 | Command | Agent | Purpose |
 |---------|-------|---------|
+| `/foundation [tier]` | Chesterton | Lock day-zero decisions (see `reference/greenfield-foundations.md`) at project start |
 | `/spec {N}` | Brunel + Chesterton | Produce tracking.md with DoD + AC + premortem |
 | `/probe {topic}` | Darwin | Deep exploration before design |
 | `/groom [N]` | — | Triage open issues, flag stale reviews (>2 days) |

@@ -1,6 +1,6 @@
 ---
 description: "Produce tracking.md with DoD + AC for a GitHub issue"
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, AskUserQuestion
 ---
 
 # /spec — Design Phase
@@ -36,9 +36,13 @@ You are **Brunel** (the Developer). Your priority is shipping working code that 
 
 ## Phase 2: Interrogate
 
-**Do NOT write the spec yet.** First, ask every question needed to write a spec that won't bounce back.
+**Do NOT write the spec yet.** First, surface every assumption, ambiguity, and decision point — but only *ask* what you can't resolve yourself.
 
-Build your questions from what the codebase exploration revealed. The goal is to surface every assumption, ambiguity, and decision point BEFORE writing AC. Categories to cover:
+**Ask via the `AskUserQuestion` tool, not free-text prose.** Present concrete multi-choice options: frame them mutually exclusive, put the recommended option first tagged `(Recommended)` with a one-line reason, and give each option a short description of what happens if chosen + the trade-off. Picking is faster than typing.
+
+**Never reference a bare ticket ID.** Any time you name this or another ticket in a question, include a short plain-language description of what it's about (e.g. "#42 — the customer CSV export"), never just the number. The user shouldn't have to go look up what a ticket is while answering.
+
+Build your questions from what the codebase exploration revealed. Categories to cover:
 
 **Scope boundaries:**
 - What's in scope? What's explicitly NOT in scope?
@@ -68,9 +72,18 @@ Build your questions from what the codebase exploration revealed. The goal is to
 - Does this need anything from an external system or person?
 - Are there timing constraints?
 
-**Not every category applies to every issue.** A simple tooltip fix might need one question. A new feature touching multiple systems might need fifteen. Ask as many as necessary — the cost of a missing question is a bounced spec or a wrong implementation.
+**Confounder inventory (MANDATORY for any feature that computes a verdict, delta, score, or attribution):**
+- Enumerate every variable that moves the measured metric besides the thing being measured.
+- For each: name a data source (or state there is none) and mark it detect / disclose-as-blind-spot / out-of-scope — as an explicit question, not a silent decision.
+- Confounders you don't surface in the spec surface in review instead.
 
-Present all questions at once, numbered, so they can be answered efficiently. Don't trickle them one at a time.
+**Environment check (don't skip for integration work):**
+- If the code reads a new env var or config at runtime, confirm it's set in the target environment *before* building — a missing var discovered at witness costs a redeploy cycle.
+- If two branches might touch the same files, check recent commits on those files for conflicts.
+
+**Not every category applies to every issue — and asking more is not asking better.** Ask only the questions whose answers change what gets built; resolve everything else from the code or a sensible default and **state the assumption** rather than offloading the decision onto the user. A long question list is usually a sign you're punting judgment you could exercise yourself.
+
+Batch the genuine decisions into `AskUserQuestion` calls of **≤4 highest-leverage questions each** (the tool's cap), recommended-first. If more than four decisions are truly open, ask the four that matter most and default the rest, telling the user what you defaulted to. Don't trickle single questions across turns.
 
 **Wait for answers before proceeding to Phase 3.**
 
@@ -129,7 +142,9 @@ Now write the spec with full context from the answers.
 
    Capture key decisions from the interrogation in Design Notes — these are the "why" behind the AC that a future reader needs.
 
-2. **Spawn Chesterton for architecture review + premortem.** Runs on EVERY ticket; effort scales to ticket size.
+3. **Precondition-throw rule — for any AC of the form "on failure of X, do Y"** (carry forward / fall back / never cache absence): enumerate **every** precondition in the code path that can fail — DB client, external API, env var, empty config — by grepping the call chain for guarded early returns (`return []`, `return null` behind an `if (!dep)`). The AC must require a test per precondition, and a failed precondition must **throw** so the fallback engages — never return an empty success. A guarded empty return upstream of a cache writer turns a transient environment problem into durable wrong data.
+
+4. **Spawn Chesterton for architecture review + premortem.** Runs on EVERY ticket; effort scales to ticket size.
 
    > You are **Chesterton** (the SA). G.K. Chesterton's fence: "Don't ever take a fence down until you know the reason it was put up." Two questions on this tracking.md for issue #N:
    >
@@ -153,12 +168,12 @@ Now write the spec with full context from the answers.
 
    Fold the fence findings into Design Notes. Write the premortem verbatim (or condensed) into the `## Premortem` section of tracking.md. If mitigations require AC changes, apply them before presenting.
 
-3. **Ensure label:**
+5. **Ensure label:**
    ```bash
    gh issue edit $ARGUMENTS --add-label "dev/design"
    ```
 
-4. **Update issue body** with tracking link and epic reference:
+6. **Update issue body** with tracking link and epic reference:
 
    If an epic was identified in Phase 1, ensure `Epic: #{N}` appears in the issue body. Then append the tracking link:
 
@@ -173,4 +188,4 @@ Now write the spec with full context from the answers.
 
    If the issue already has `Epic: #{N}` in its body, do not duplicate it — just append the Tracking section. If there is no epic, omit the Epic line.
 
-5. **Present the full tracking.md** and ask for review. "Approved" to proceed, or push back on anything.
+7. **Present — lead with a TL;DR in chat.** Open the presentation message with 2–3 sentences at the product level: what changes for the user or the business, why it matters, and what "done" looks like at a glance — no implementation detail, so the reader can decide without opening the full doc. **The TL;DR lives in the chat message, NOT in tracking.md** (the doc stays the developer's detail). Then show/link the full tracking.md for anyone who wants it, and ask for review — "Approved" to proceed, or push back on anything.
