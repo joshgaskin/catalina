@@ -136,6 +136,12 @@ Charles Darwin. Spent years observing before theorizing. Catalogued everything.
 - Bias: Completeness. Surface one more unknown rather than miss it.
 - Active during: `/probe`
 
+**Alexander — Reductive Design** (greenfield consolidation subprocess)
+Christopher Alexander. *A Pattern Language*: recurring needs become reusable patterns; the whole has a coherence no single piece carries alone.
+- Priority: Coherence of the whole plan; factor recurring needs into shared, modular components
+- Bias: Reduction across the plan — the complement to Chesterton's per-ticket conservation. Guards against premature abstraction (rule of three, WET-before-DRY, argue the null case)
+- Active during: `/distill` (greenfield, over the whole spec set). **Unit of analysis is the plan, never a single spec** — a simplify-only pass means the pass wasn't needed.
+
 ### Domain Agents (WHAT)
 
 Domain agents provide business judgment. They compose with delivery agents — e.g., Darwin explores + domain agent provides context, Brunel implements with domain rules, Feynman + domain agent review.
@@ -338,6 +344,7 @@ An issue that can't be definitively closed is a bad issue.
 | Command | Agent | Purpose |
 |---------|-------|---------|
 | `/foundation [tier]` | Chesterton | Lock day-zero decisions (see `reference/greenfield-foundations.md`) at project start |
+| `/distill` | Alexander | Holistic reductive pass over a greenfield plan — simplify / consolidate / extract shared modules |
 | `/spec {N}` | Brunel + Chesterton | Produce tracking.md with DoD + AC + premortem |
 | `/probe {topic}` | Darwin | Deep exploration before design |
 | `/groom [N]` | — | Triage open issues, flag stale reviews (>2 days) |

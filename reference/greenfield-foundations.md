@@ -97,3 +97,15 @@ they aren't "things."
 where it makes sense — seeds the initial data model and the CLAUDE.md conventions from the
 answers. Not every project needs every row: skip what doesn't apply, but skip it
 *deliberately*, on the record, rather than by omission.
+
+## The greenfield flow
+
+`/foundation` → spec each feature (`/spec`) → **`/distill`** → build.
+
+`/distill` (Christopher Alexander) is the holistic reductive pass over the *whole plan* — simplify,
+consolidate the same need spread across specs, and extract recurring shapes into one reusable module
+instead of three hand-rolled ones. Run it **once the feature set is substantially all spec'd and
+stable, before writing feature code** — the cheapest moment to make three specs share a component.
+It's optional and greenfield-only: a small project with a handful of specs has nothing to consolidate.
+`/distill` proposes edits you approve (never auto-rewrites) and never touches this `foundations.md`
+record — foundation-layer changes route back through `/foundation`.

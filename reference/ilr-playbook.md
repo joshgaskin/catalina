@@ -50,6 +50,7 @@
 | **Feynman** | Dev Lead | "You must not fool yourself" — skeptical reviewer |
 | **Chesterton** | SA | "Why was this fence here, and how will this fail?" — architectural guardian + premortem on every ticket |
 | **Darwin** | JA | Observes everything before theorizing |
+| **Alexander** | Reductive Design (greenfield) | "These three fences are one pattern — build it once" — the holistic `/distill` pass |
 
 ### Domain (WHAT)
 
