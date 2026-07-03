@@ -87,4 +87,4 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 
 8. **Present the verification summary** with visual evidence (reference screenshots/GIFs). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
 
-   Review the evidence and decide: "ship it" or push back.
+   Review the evidence and decide: "ship it" / "go" or push back.

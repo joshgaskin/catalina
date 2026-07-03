@@ -304,7 +304,7 @@ An issue that can't be definitively closed is a bad issue.
 1. **Label lifecycle** — labels encode state transitions, managed by Claude
 2. **Commit-msg hook** — rejects commits without issue refs on `issue-*` branches
 3. **Witness is mandatory** — never skip `/witness`, never ask to skip it
-4. **Deming retro** — after every "ship it", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
+4. **Deming retro** — after every "ship it"/"go", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
 
 ---

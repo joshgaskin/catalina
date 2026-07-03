@@ -56,7 +56,7 @@ Work flows through GitHub Issues with labels encoding state. Full system design:
 
 **Flow:** Create -> `/spec` (dev/design) -> Josh approves -> implement (dev/implement) -> `/witness` (review) -> Josh ships -> Deming retro
 
-**"Ship it" means merge to remote `main` immediately** — not just pushing a branch or opening a PR.
+**"Ship it" — or just "Go" — means merge to remote `main` immediately** — not just pushing a branch or opening a PR. "Ship", "ship it", and "go" are interchangeable ship triggers.
 
 **Always (any change, any size):**
 - Visually verify every change in the browser before declaring done
@@ -69,7 +69,7 @@ Work flows through GitHub Issues with labels encoding state. Full system design:
 - Branch from `main` as `issue-{N}-brief-slug`
 - **ALWAYS work in a dedicated git worktree** at `.claude/worktrees/issue-{N}` — never the main repo dir, since parallel Claude sessions step on each other. Create with `git worktree add .claude/worktrees/issue-{N} issue-{N}-brief-slug` and symlink the project's env file (e.g. `.env.local`) into it. Remove with `git worktree remove .claude/worktrees/issue-{N}` once merged.
 - Tracking artifacts: `.claude/tracking/issue-{N}/tracking.md` + `verification.jsonl`
-- After "ship it": Deming reviews the cycle for process gaps
+- After "ship it"/"go": Deming reviews the cycle for process gaps
 
 **Quick tasks (Josh says "just do X"):**
 - Make the change, visually verify in browser, done. No issue, no tracking artifacts.
