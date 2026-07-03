@@ -118,8 +118,13 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    - **AC fail** (behavior is wrong): hand back to Brunel to **re-implement**, then re-witness.
    - **Bound:** 2 bounces, counted from `## Review History` / `verification.jsonl` fail-lines (not a
      number you increment yourself). On the 3rd failure, STOP and escalate to the human with a
-     diagnosis — escalation is the only sanctioned exit. Log the bounce in `## Review History` and
-     update `## Pipeline State`.
+     diagnosis — escalation is the only sanctioned exit. On each bounce: (1) append a
+     machine-countable **`- BOUNCE: {reason}`** line to `## Review History`; then (2) begin the next
+     build cycle by **re-asserting the implement label** — `gh issue edit $ARGUMENTS --add-label
+     dev/implement`. The `retry-gate` hook fires on that re-assert and counts the `- BOUNCE:` markers:
+     it allows 2 retries and BLOCKS the 3rd (exit 2 → escalate to the human). Then update
+     `## Pipeline State`. (This re-assert is what gives the loop a recurring choke point — without it
+     the issue just stays `dev/implement` and nothing is gate-able.)
 
 8. **Present the verification summary** with visual evidence (reference screenshots/GIFs). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
 

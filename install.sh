@@ -80,25 +80,28 @@ fi
 # Makes the "witness is enforced" claim true by default instead of a dormant reminder.
 SETTINGS="$HOME/.claude/settings.json"
 if command -v node >/dev/null 2>&1; then
-  echo "Wiring witness-gate.js into $SETTINGS..."
-  SETTINGS_PATH="$SETTINGS" node <<'NODE' || echo "  warn: could not wire witness-gate (edit settings.json manually)"
+  echo "Wiring ILR gate hooks into $SETTINGS..."
+  SETTINGS_PATH="$SETTINGS" node <<'NODE' || echo "  warn: could not wire ILR gates (edit settings.json manually)"
 const fs = require("fs"), path = require("path");
 const p = process.env.SETTINGS_PATH;
 let s = {};
 try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
 s.hooks = s.hooks || {};
 s.hooks.PreToolUse = s.hooks.PreToolUse || [];
-if (JSON.stringify(s.hooks.PreToolUse).includes("witness-gate.js")) {
-  console.log("  OK   witness-gate already wired");
-} else {
-  s.hooks.PreToolUse.push({ matcher: "Bash", hooks: [ { type: "command", command: "node ~/.claude/hooks/witness-gate.js" } ] });
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
-  console.log("  OK   witness-gate wired into PreToolUse(Bash)");
+let changed = false;
+for (const h of ["witness-gate.js", "retry-gate.js"]) {
+  if (JSON.stringify(s.hooks.PreToolUse).includes(h)) {
+    console.log(`  OK   ${h} already wired`);
+  } else {
+    s.hooks.PreToolUse.push({ matcher: "Bash", hooks: [ { type: "command", command: `node ~/.claude/hooks/${h}` } ] });
+    changed = true;
+    console.log(`  OK   ${h} wired into PreToolUse(Bash)`);
+  }
 }
+if (changed) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n"); }
 NODE
 else
-  echo "  SKIP witness-gate wiring (node not found) — add it to $SETTINGS manually"
+  echo "  SKIP gate wiring (node not found) — add witness-gate.js + retry-gate.js to $SETTINGS manually"
 fi
 
 # --- Git commit-msg hook (ILR issue-ref enforcement) ---

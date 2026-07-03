@@ -84,11 +84,15 @@ spec ──approve──▶ implement ──done──▶ witness ──pass─�
 - **Automatic — routing on failure (bounded, split by red-state):**
   - **Witness-gate BLOCK** (exit 2 — evidence missing/fake): gather/repair the evidence and
     **re-witness**. Do NOT re-implement, and **never** use `CATALINA_WITNESS_ALLOW` to escape — the
-    override is not a loop exit; any use is logged to the issue.
+    override is not a loop exit; the hooks print a loud stderr notice (they don't post to the issue),
+    so any use must be recorded as a `- BYPASS:` line in `## Review History` for Deming to see at retro.
   - **AC FAIL** (wrong code): **re-implement**, then re-witness.
-  - The bound is **2 bounces**, counted from committed ground truth (`## Review History` entries /
-    `verification.jsonl` fail-lines), not a self-incremented field. On the 3rd failure, STOP and
-    escalate to the human with a diagnosis — escalation is the only sanctioned exit from a failing loop.
+  - The bound is **2 retries (3 build attempts)**. Each build cycle begins by re-asserting
+    `--add-label dev/implement` (witness.md's fail-route does this), and `hooks/retry-gate.js` counts
+    the `- BOUNCE:` markers in the `## Review History` section — allowing 2 retries and **blocking the
+    3rd** (exit 2). The count is working-tree text (a careless Review-History rewrite could reset it —
+    strong, not cryptographic). On the 3rd failure, STOP and escalate — escalation is the only
+    sanctioned exit from a failing loop.
 - **Human gate 2 — ship ("go").** Witness pass → present evidence and stop. "go"/"ship" is valid
   **only here**, and means merge to `main` + retro.
 
