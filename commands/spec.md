@@ -23,6 +23,13 @@ You are **Brunel** (the Developer). Your priority is shipping working code that 
 
    **Check for epic context:** Look for an `Epic: #{N}` line in the issue body. If found, note the epic number — it links this issue to its parent epic. If the issue was created as part of an epic decomposition and doesn't have this line yet, ask the user which epic it belongs to.
 
+   **Prior-art check (DO NOT SKIP):** search for existing work before assuming greenfield:
+   ```bash
+   gh pr list --state all --search "$ARGUMENTS in:title,body" --limit 10
+   git branch -r | grep -i "$ARGUMENTS"
+   ```
+   Also check any execution mirrors or agent checkouts the project uses for local branches naming the issue. If an open or merged PR already implements this issue (or part of it), STOP and surface it before speccing — the issue may only need a merge or a close, not a spec. The PR body/thread may also contain decisions the requester already made; those override assumptions and must not be re-asked. Re-speccing on top of an unmerged PR is a recurring failure mode: it produces contradictory decisions and duplicate builds.
+
 2. **Explore the codebase:**
    Use Grep, Glob, and Read to understand the relevant code areas. Identify:
    - Files that need to change
