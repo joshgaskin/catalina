@@ -37,6 +37,9 @@ These encode how we think. Specific rules follow from these.
 - Always visually confirm changes in the browser (or have the user confirm) before declaring success
 - If you can't visually verify, say so honestly
 
+### Browser automation (hard rule)
+- **Always use `/browse` (the `agent-browser` headless CLI) for browser verification and automation** — never the claude-in-chrome MCP tools. The Chrome extension is unreliable against localhost dev servers and its tab state wedges under automation.
+
 ## Code Quality
 - Always create documentation and tests for new or revised features
 - Run linters/formatters before committing
