@@ -84,6 +84,17 @@ Build your questions from what the codebase exploration revealed. Categories to 
 - For each: name a data source (or state there is none) and mark it detect / disclose-as-blind-spot / out-of-scope — as an explicit question, not a silent decision.
 - Confounders you don't surface in the spec surface in review instead.
 
+**Cross-cutting concerns (the easy-to-forget layer — run this list on every non-trivial feature):**
+- **Analytics/instrumentation:** what GA4 (or equivalent) events + params prove this feature works and measure its funnel? How is success measured? Are server-side conversions (webhooks) tracked, not just client events? Do new params need custom-dimension registration to be queryable?
+- **Notifications:** does this need to nudge/remind/alert? Which channel(s), what cadence, quiet hours + frequency cap, opt-out?
+- **Gamification/engagement:** does this touch streaks/XP/rewards? Does it create a new reward axis that could be gamed, or drift from existing systems?
+- **Auth/permissions & gating:** who can access it, free vs paid, server-enforced (not client-only)?
+- **States:** empty, loading, error, offline, mobile/responsive, accessibility.
+- **Data/SEO:** migrations + grants; for user-facing pages, metadata/canonical/sitemap and ranking-protection.
+- **Observability:** errors to Sentry; feature flag / kill switch if risky.
+
+Surface these explicitly even when the answer is "N/A" — the cost of a forgotten cross-cutting concern is a feature that ships unmeasurable, un-promotable, or silently broken on mobile.
+
 **Environment check (don't skip for integration work):**
 - If the code reads a new env var or config at runtime, confirm it's set in the target environment *before* building — a missing var discovered at witness costs a redeploy cycle.
 - If two branches might touch the same files, check recent commits on those files for conflicts.
@@ -134,6 +145,13 @@ Now write the spec with full context from the answers.
     List each cache key the change invalidates, the mechanism to bust it,
     auth required, and what to do if the mechanism fails (e.g. Vercel cron
     timeout). If no caches affected, write "None — pure source code change."}
+
+   ## Cross-Cutting Checklist
+   {One line per concern: Addressed (→ which AC) or N/A (→ why). Forces the
+    easy-to-forget layer into the spec. Non-trivial features must cover:
+    Analytics/instrumentation · Notifications · Gamification/engagement ·
+    Auth/permissions & gating · States (empty/loading/error/mobile/a11y) ·
+    Data/migrations + SEO · Observability (Sentry/flags).}
 
    ## Review History
    {Empty — tracks spec/implementation review bounces}
