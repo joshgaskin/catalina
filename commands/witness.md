@@ -17,6 +17,16 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
 
 ## Steps
 
+0. **Pin the artifact under test (DO NOT SKIP):**
+   Resolve the commit the deployment actually serves BEFORE witnessing anything:
+   `gh pr view <N> --json headRefOid` and `vercel inspect <deployment-url>` (or the
+   platform equivalent) must BOTH equal `git rev-parse origin/<branch>`. If they
+   differ, STOP — you are about to witness stale code (the #1089 bounce burned a
+   full round-trip on a deployment missing the builder's last, unpushed commit;
+   the tell — "the old deploy behaves identically" — was visible and unread).
+   Record the sha in every verification.jsonl line as a `"sha"` field so the
+   evidence names the artifact it describes.
+
 0. **Preflight — confirm the gate is live.** Check that `witness-gate.js` is registered as a
    PreToolUse(Bash) hook in `.claude/settings.json`. If it is NOT, warn loudly: the
    `dev/implement → review` flip won't be enforced this session, so you are back on the honor
@@ -44,6 +54,22 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    `observable` or not, drives the flow, and saves each artifact under
    `.claude/tracking/issue-{N}/evidence/`. **If the browser tools aren't available, HALT** and
    report "cannot witness — no browser"; never downgrade a UI AC to programmatic and call it a pass.
+
+   **A hang is diagnosed by timing, not by trackers.** Before any claim of the
+   form "X never happened" (a fetch never fired, an event never arrived), capture
+   `performance.getEntriesByType('navigation'|'resource')` on the stalled load
+   itself and keep watching ≥60s — browser-extension console/network trackers
+   reset per navigation, so an empty read after a slow load is NO DATA, never
+   evidence of absence. (#1089: "the fetch never fires" was asserted twice from
+   empty tracker reads; resource timing showed it firing at t=35s — the real bug
+   was a platform hydration stall, and the bounce + fix commit were misdirected.)
+
+   **Platform-capability ACs: run the control surface FIRST.** If an AC depends
+   on a shared platform capability (realtime, webhooks, inbound email, cron,
+   streaming), the spec names an already-shipped feature using the same
+   capability — witness THAT first on the same environment. Control dead → mark
+   the AC `needs_human` (defer to prod) immediately and stop probing; an hour of
+   layered probes cannot tell you what one dead control proves in a minute.
 
    a. Call `mcp__claude-in-chrome__tabs_context_mcp` first to see current browser state
    b. Navigate to the relevant pages using `mcp__claude-in-chrome__navigate` or `mcp__claude-in-chrome__tabs_create_mcp`

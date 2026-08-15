@@ -40,10 +40,16 @@ const DENYLIST = [
       "Force push blocked. Use 'git push --force-with-lease' for safer force pushes.",
   },
   {
+    name: "git-stash-shared",
+    pattern: /\bgit\b[^\n]*\bstash\b[^\n]*\b(pop|apply|drop|clear)\b|\bgit\b\s+stash\s*($|[^\w-])/,
+    message:
+      "git stash blocked: refs/stash is SHARED across all worktrees of this repo — a stash/pop here can eat another session's uncommitted work (#1089 near-miss: 25 of Josh's files). Commit to your branch instead; every git call in ILR work must be 'git -C <absolute-worktree-path> ...'.",
+  },
+  {
     name: "hard-reset",
     pattern: /\bgit\s+reset\s+--hard\b/,
     message:
-      "Hard reset blocked. Use 'git stash' to save changes or 'git reset --soft' to preserve staged work.",
+      "Hard reset blocked. Commit to your branch (or 'git reset --soft') — do NOT reach for 'git stash': the stash stack is shared across every worktree of the repo.",
   },
   {
     name: "truncate",

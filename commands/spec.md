@@ -170,6 +170,8 @@ Now write the spec with full context from the answers.
 
    Every AC must be specific and testable. "Works correctly" is not an AC. "Clicking Save persists the record and shows a success toast" is.
 
+   **Platform-capability ACs must name their control surface.** If an AC depends on a shared platform capability (realtime, webhooks, inbound email, cron, streaming), the AC names an already-shipped feature that uses the same capability on the same environment. At witness time the control runs first; a dead control reroutes the AC to prod verification instead of hours of feature-side probing (#1089 retro: realtime was dead environment-wide on preview — the shipped notifications bell proved it in one step, reached for last).
+
    Capture key decisions from the interrogation in Design Notes — these are the "why" behind the AC that a future reader needs.
 
 3. **Precondition-throw rule — for any AC of the form "on failure of X, do Y"** (carry forward / fall back / never cache absence): enumerate **every** precondition in the code path that can fail — DB client, external API, env var, empty config — by grepping the call chain for guarded early returns (`return []`, `return null` behind an `if (!dep)`). The AC must require a test per precondition, and a failed precondition must **throw** so the fallback engages — never return an empty success. A guarded empty return upstream of a cache writer turns a transient environment problem into durable wrong data.
