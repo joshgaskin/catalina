@@ -170,7 +170,7 @@ Now write the spec with full context from the answers.
 
    Every AC must be specific and testable. "Works correctly" is not an AC. "Clicking Save persists the record and shows a success toast" is.
 
-   **Platform-capability ACs must name their control surface.** If an AC depends on a shared platform capability (realtime, webhooks, inbound email, cron, streaming), the AC names an already-shipped feature that uses the same capability on the same environment. At witness time the control runs first; a dead control reroutes the AC to prod verification instead of hours of feature-side probing (#1089 retro: realtime was dead environment-wide on preview — the shipped notifications bell proved it in one step, reached for last).
+   **Platform-capability ACs must name their control surface.** If an AC depends on a shared platform capability (realtime, webhooks, inbound email, cron, streaming), the AC names an already-shipped feature that uses the same capability on the same environment. At witness time the control runs first; a dead control reroutes the AC to prod verification instead of hours of feature-side probing (from a real retro: realtime was dead environment-wide on preview — the shipped notifications bell proved it in one step, reached for last).
 
    Capture key decisions from the interrogation in Design Notes — these are the "why" behind the AC that a future reader needs.
 

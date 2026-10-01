@@ -58,7 +58,7 @@ any coupling proposal, apply the counter-pressure yourself:
 - **WET before DRY on greenfield.** With no code yet, a wrong *duplicate* is trivial to merge later; a
   wrong *shared module* couples features you must unwind. Default recommendation for anything you're
   *guessing* is **"duplicate now, extract at the second real build."**
-- **Cap the report.** A short, ranked list Josh can actually weigh — not a wall that induces approval
+- **Cap the report.** A short, ranked list the founder can actually weigh — not a wall that induces approval
   fatigue.
 
 ## Single writer for the foundation

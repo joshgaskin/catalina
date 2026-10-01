@@ -43,7 +43,7 @@ const DENYLIST = [
     name: "git-stash-shared",
     pattern: /(?:^|[;&|]\s*|\$\(\s*)git(?:\s+-C\s+\S+)?\s+stash\b/m,
     message:
-      "git stash blocked: refs/stash is SHARED across all worktrees of this repo — a stash/pop here can eat another session's uncommitted work (#1089 near-miss: 25 of Josh's files). Commit to your branch instead; every git call in ILR work must be 'git -C <absolute-worktree-path> ...'.",
+      "git stash blocked: refs/stash is SHARED across all worktrees of this repo — a stash/pop here can eat another session's uncommitted work (a real near-miss: one session's stash nearly took 25 of another session's uncommitted files). Commit to your branch instead; every git call in ILR work must be 'git -C <absolute-worktree-path> ...'.",
   },
   {
     name: "hard-reset",

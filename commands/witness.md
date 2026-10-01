@@ -21,7 +21,7 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    Resolve the commit the deployment actually serves BEFORE witnessing anything:
    `gh pr view <N> --json headRefOid` and `vercel inspect <deployment-url>` (or the
    platform equivalent) must BOTH equal `git rev-parse origin/<branch>`. If they
-   differ, STOP — you are about to witness stale code (the #1089 bounce burned a
+   differ, STOP — you are about to witness stale code (one real bounce burned a
    full round-trip on a deployment missing the builder's last, unpushed commit;
    the tell — "the old deploy behaves identically" — was visible and unread).
    Record the sha in every verification.jsonl line as a `"sha"` field so the
@@ -60,7 +60,7 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    `performance.getEntriesByType('navigation'|'resource')` on the stalled load
    itself and keep watching ≥60s — browser-extension console/network trackers
    reset per navigation, so an empty read after a slow load is NO DATA, never
-   evidence of absence. (#1089: "the fetch never fires" was asserted twice from
+   evidence of absence. (In one real cycle, "the fetch never fires" was asserted twice from
    empty tracker reads; resource timing showed it firing at t=35s — the real bug
    was a platform hydration stall, and the bounce + fix commit were misdirected.)
 

@@ -1,3 +1,4 @@
 .DS_Store
 node_modules/
 *.transcript.md
+.claude/tracking/
