@@ -126,12 +126,12 @@ function prodDirectRule(cwd) {
       "m"
     ),
     message:
-      `Direct transfer to a production host (${hosts.join(", ")}) blocked. Production changes ship only through the project's deploy script after they ran on staging and the requester accepted them there (see /deploy). For a one-off, the human says "${ALLOW_PROD_PHRASE}" in their message (valid until their next message), or Claude Code is started with CATALINA_GUARDRAIL_ALLOW=prod-direct.`,
+      `Direct transfer to a production host (${hosts.join(", ")}) blocked. Production changes ship only through the project's deploy script after they ran on staging and the requester accepted them there (see /deploy). For a one-off, the human says "${ALLOW_PROD_PHRASE}" or "run the train" in their message (valid until their next message), or Claude Code is started with CATALINA_GUARDRAIL_ALLOW=prod-direct.`,
   };
 }
 
 // ---------------------------------------------------------------------------
-// "allow prod": the human's own words unlock prod-direct for one turn.
+// "allow prod" / "run the train": the human's own words unlock prod-direct for one turn.
 // The hook reads the session transcript and finds the LAST message the human typed
 // (origin.kind === "human", not meta). Only that message counts, so the permission
 // lapses with their next message. Tool output, teammate / cross-session messages,
@@ -139,6 +139,9 @@ function prodDirectRule(cwd) {
 // cannot grant it to itself. Subagent transcripts never count. Missing or unreadable
 // transcript = blocked (fail closed). Every use is logged to ~/.claude/guardrail-overrides.log.
 const ALLOW_PROD_PHRASE = "allow prod";
+// "run the train" (Josh, 2026-10-02) means: ship everything on staging to production, including the production-side
+// steps the train needs. Same rules as "allow prod": the human's own latest message, that turn only.
+const ALLOW_PROD_RE = /\b(?:allow\s+prod|run\s+the\s+train)\b/i;
 
 function lastHumanMessage(transcriptPath) {
   const fs = require("fs");
@@ -177,7 +180,7 @@ function humanAllowedProd(transcriptPath) {
   const msg = lastHumanMessage(transcriptPath);
   if (!msg) return null;
   const own = msg.replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content\b[^>]*>/gi, " ");
-  return /\ballow\s+prod\b/i.test(own) ? own : null;
+  return ALLOW_PROD_RE.test(own) ? own : null;
 }
 
 function logOverride(input, rule, command, msg) {
