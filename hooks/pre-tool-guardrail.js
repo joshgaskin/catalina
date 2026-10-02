@@ -46,6 +46,13 @@ const DENYLIST = [
       "git stash blocked: refs/stash is SHARED across all worktrees of this repo — a stash/pop here can eat another session's uncommitted work (a real near-miss: one session's stash nearly took 25 of another session's uncommitted files). Commit to your branch instead; every git call in ILR work must be 'git -C <absolute-worktree-path> ...'.",
   },
   {
+    name: "worktree-branch-override",
+    pattern:
+      /(?:^|[;&|(]\s*|\$\(\s*)git(?:\s+-C\s+\S+)?\s+(?:(?:switch|checkout)\b[^\n;&|]*?--ignore-other-worktrees\b|worktree\s+add\b[^\n;&|]*?\s(?:-f|--force)\b)/m,
+    message:
+      "Checking out a branch another worktree already has is blocked: worktrees share branch refs but not files, so the other checkout's files silently go stale under its branch (a real incident: a build merged into the shared integration branch this way and left the main checkout's files hours behind its own branch, one 'commit -a' away from reverting the morning's work). To merge into a shared branch, use a detached checkout: git checkout --detach origin/<branch> && git merge --no-ff <your-branch> && git push origin HEAD:<branch>.",
+  },
+  {
     name: "hard-reset",
     pattern: /\bgit\s+reset\s+--hard\b/,
     message:
