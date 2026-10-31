@@ -49,16 +49,22 @@ Triage open GitHub issues and present a dashboard.
    ```
    If observations exist, count them by type (failure/success/friction/insight) for the dashboard indicator.
 
-5. **Witness-evidence sweep (the enforcement guarantee).** For every issue currently labelled
-   `review`, run the shared validator. This catches issues that reached `review` by ANY path —
-   the `gh` Bash gate, the GitHub MCP tool, `gh api`, or a human hand — not just the hook's path:
+5. **Gate sweep (the enforcement guarantee).** Three commands, all read-only here:
    ```bash
-   node ~/.claude/hooks/lib/verify-witness.js {N}   # (hooks/lib/verify-witness.js in the Catalina source repo)
+   catalina check {N} --worktree      # every issue labelled `review`
+   catalina audit --dry-run           # commits on the default branch that never passed
+   catalina audit --shadow-report     # what the gate would have blocked (shadow mode)
    ```
-   Exit 0 = evidence valid. Exit 1 = **INVALID** — surface it prominently ("#N is in `review` but
-   its verification.jsonl is incomplete or fake: <reasons>") and recommend reverting it to
-   `dev/implement` until it's witnessed for real. This is the layer the label-flip hook can't be
-   routed around.
+   - A `review` issue that fails the check reached `review` by some path the hook didn't see
+     (the GitHub MCP tool, `gh api`, a human hand): surface it ("#N is in `review` but: <reasons>")
+     and recommend moving it back to `dev/implement` until it's witnessed for real.
+   - Audit findings and open `catalina-unchecked` issues go under **Needs attention**: each is a
+     commit on the default branch that skipped the process — witness it or revert it.
+   - In shadow mode, show the would-block count per day; when it has stayed low for a few days,
+     recommend switching `.catalina/config.json` to `"mode": "enforce"`.
+   - **Lessons missing:** list issues closed in the last 14 days whose tracking.md has no
+     `## Lessons` section — the retro (`/recall`, post-ship) hasn't written what the next spec
+     should read.
 
 6. **If a specific issue number was provided** ($ARGUMENTS), focus the deep dive on that issue — show full tracking.md status, recent activity, and recommended next step.
 
@@ -97,3 +103,8 @@ Triage open GitHub issues and present a dashboard.
    - "Spec drafted — needs your review"
    - "Blocked on X — can you unblock?"
    - "No tracking yet — want me to /spec this?"
+
+## Project rules
+
+<!-- overlay -->
+!`cat .claude/catalina/groom.local.md 2>/dev/null || true`

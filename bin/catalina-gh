@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+// A `gh` that runs `catalina gate` before `gh pr merge`. See lib/ghguard.js.
+process.exitCode = require("../lib/ghguard").main(process.argv.slice(2));

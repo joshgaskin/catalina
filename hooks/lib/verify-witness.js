@@ -32,21 +32,30 @@ const crypto = require("crypto");
 const UI_KEYWORDS =
   /\b(render|renders|page|screen|button|click|visible|visual|browser|UI|toast|modal|scroll|viewport|layout|css|style|mobile)\b/i;
 
+/** Reads repo-relative files from disk. `catalina check` passes a reader over a commit instead. */
+function fsReader(repoRoot) {
+  const abs = (rel) => (path.isAbsolute(rel) ? rel : path.join(repoRoot, rel));
+  return {
+    text: (rel) => (fs.existsSync(abs(rel)) ? fs.readFileSync(abs(rel), "utf8") : null),
+    buf: (rel) => (fs.existsSync(abs(rel)) ? fs.readFileSync(abs(rel)) : null),
+  };
+}
+
 function verifyWitness(issueNumber, opts = {}) {
   const repoRoot = opts.repoRoot || process.cwd();
+  const read = opts.reader || fsReader(repoRoot);
   const reasons = [];
-  const dir = path.join(repoRoot, ".claude", "tracking", `issue-${issueNumber}`);
-  const trackingPath = path.join(dir, "tracking.md");
-  const jsonlPath = path.join(dir, "verification.jsonl");
+  const dir = `.claude/tracking/issue-${issueNumber}`;
 
-  if (!fs.existsSync(trackingPath)) {
-    return { ok: false, reasons: [`tracking.md missing for issue ${issueNumber}`], needsHuman: 0 };
+  const tracking = read.text(`${dir}/tracking.md`);
+  if (tracking === null) {
+    return { ok: false, reasons: [`tracking.md missing for issue ${issueNumber}`], needsHuman: 0, acLines: [], premortemLines: [], otherLines: [] };
   }
-  if (!fs.existsSync(jsonlPath)) {
-    return { ok: false, reasons: [`verification.jsonl missing for issue ${issueNumber} — nothing was witnessed`], needsHuman: 0 };
+  const jsonl = read.text(`${dir}/verification.jsonl`);
+  if (jsonl === null) {
+    return { ok: false, reasons: [`verification.jsonl missing for issue ${issueNumber} — nothing was witnessed`], needsHuman: 0, acLines: [], premortemLines: [], otherLines: [] };
   }
 
-  const tracking = fs.readFileSync(trackingPath, "utf8");
   const acIds = [];
   for (const m of tracking.matchAll(/^- \[[ xX]\] (AC\d+)\b[:.]?\s*(.*)$/gm)) {
     acIds.push({ id: m[1], text: m[2] || "" });
@@ -56,9 +65,10 @@ function verifyWitness(issueNumber, opts = {}) {
   }
 
   // Parse jsonl
-  const lines = fs.readFileSync(jsonlPath, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = jsonl.split("\n").map((l) => l.trim()).filter(Boolean);
   const acLines = [];
   const premortemLines = [];
+  const otherLines = []; // e.g. {"red_green":"none","reason":…}, read by catalina check
   for (let i = 0; i < lines.length; i++) {
     let obj;
     try {
@@ -68,7 +78,8 @@ function verifyWitness(issueNumber, opts = {}) {
       continue;
     }
     if (obj.premortem !== undefined) premortemLines.push(obj);
-    else acLines.push(obj);
+    else if (obj.ac !== undefined) acLines.push(obj);
+    else otherLines.push(obj);
   }
 
   const tokenOf = (s) => {
@@ -131,15 +142,14 @@ function verifyWitness(issueNumber, opts = {}) {
     if (!artifact) {
       reasons.push(`${id}: observable AC has no "artifact" path — no artifact, no pass (rule c)`);
     } else {
-      const ap = path.isAbsolute(artifact) ? artifact : path.join(repoRoot, artifact);
-      if (!fs.existsSync(ap)) {
+      const content = read.buf(artifact);
+      if (content === null) {
         reasons.push(`${id}: artifact "${artifact}" does not exist on disk (rule c)`);
       } else {
-        const stat = fs.statSync(ap);
-        if (stat.size <= 1024) {
-          reasons.push(`${id}: artifact "${artifact}" is ${stat.size}B (<=1KB) — looks empty/placeholder (rule c)`);
+        if (content.length <= 1024) {
+          reasons.push(`${id}: artifact "${artifact}" is ${content.length}B (<=1KB) — looks empty/placeholder (rule c)`);
         } else {
-          const hash = crypto.createHash("sha1").update(fs.readFileSync(ap)).digest("hex");
+          const hash = crypto.createHash("sha1").update(content).digest("hex");
           if (artifactHashes[hash]) {
             reasons.push(`${id}: artifact is byte-identical to ${artifactHashes[hash]}'s — same file reused as evidence (rule c)`);
           } else {
@@ -164,7 +174,7 @@ function verifyWitness(issueNumber, opts = {}) {
     }
   }
 
-  return { ok: reasons.length === 0, reasons, needsHuman };
+  return { ok: reasons.length === 0, reasons, needsHuman, acLines, premortemLines, otherLines, tracking };
 }
 
 module.exports = { verifyWitness };

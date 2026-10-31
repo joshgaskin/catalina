@@ -20,13 +20,19 @@
 const fs = require("fs");
 const path = require("path");
 
-let mod;
+let mod, catalina, cfgLib;
 try {
   mod = require("./lib/verify-witness");
 } catch {
   // If the validator can't load, fail open (don't wedge the session) but say so.
   process.stderr.write("[witness-gate] validator module not found — gate inactive\n");
 }
+try {
+  // Linked install: ~/.claude/hooks/witness-gate.js -> <catalina>/hooks/witness-gate.js, so ../lib is the package.
+  const pkg = require("path").join(require("fs").realpathSync(__filename), "..", "..", "lib");
+  catalina = require(`${pkg}/check`);
+  cfgLib = require(`${pkg}/config`);
+} catch {}
 
 let data = "";
 process.stdin.setEncoding("utf8");
@@ -83,7 +89,16 @@ process.stdin.on("end", () => {
   const dir = path.join(process.cwd(), ".claude", "tracking", `issue-${n}`);
   if (!fs.existsSync(dir)) return passthrough(0); // not an ILR issue → don't block
 
-  const { ok, reasons, needsHuman } = mod.verifyWitness(n, { repoRoot: process.cwd() });
+  // Projects that adopted Catalina (.catalina/config.json on the default branch) get the full
+  // check, reading the red proof from its cache only — a hook must finish fast, and the red
+  // run belongs to `catalina check --witness`. Others keep the evidence-only validator.
+  let adopted = null;
+  try {
+    adopted = catalina && cfgLib.load(process.cwd());
+  } catch {}
+  const { ok, reasons, needsHuman = 0 } = adopted
+    ? catalina.check(n, { cwd: process.cwd(), source: "worktree", red: "cache", config: adopted })
+    : mod.verifyWitness(n, { repoRoot: process.cwd() });
   if (ok) {
     if (needsHuman) {
       process.stderr.write(

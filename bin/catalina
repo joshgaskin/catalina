@@ -1,0 +1,86 @@
+#!/usr/bin/env node
+/**
+ * catalina — the ILR's checks as code.
+ *
+ *   catalina check <N> [--sha S] [--base B] [--worktree] [--witness]
+ *   catalina pre-push <remote> <url>            (git hook; refs on stdin)
+ *   catalina gate <tip> [--json] [--remote R]   (the push rule over a branch, before a GitHub merge)
+ *   catalina gate --pr N [-R owner/name] [--json] (the same on a PR's current head, fetched into ~/.catalina-gate)
+ *   catalina audit [--since 72h] [--dry-run] [--shadow-report] [--json]
+ *   catalina recall --paths a,b [--epic E]
+ *   catalina doctor [--also <dir>]...
+ */
+const path = require("path");
+const lib = path.join(__dirname, "..", "lib");
+
+const argv = process.argv.slice(2);
+const cmd = argv.shift();
+const flag = (name) => argv.includes(name);
+const opt = (name) => {
+  const i = argv.indexOf(name);
+  return i === -1 ? undefined : argv[i + 1];
+};
+const opts = (name) => argv.flatMap((a, i) => (a === name ? [argv[i + 1]] : []));
+
+function main() {
+  switch (cmd) {
+    case "check": {
+      const n = argv.find((a) => /^#?\d+$/.test(a));
+      if (!n) return usage();
+      const r = require(path.join(lib, "check")).check(n.replace("#", ""), {
+        sha: opt("--sha"),
+        base: opt("--base"),
+        source: flag("--worktree") || flag("--witness") ? "worktree" : "commit",
+        witness: flag("--witness"),
+        red: flag("--witness") ? "run" : "miss",
+      });
+      if (r.ok) console.log(`issue ${n}: catalina check passed${r.sha ? ` at ${r.sha.slice(0, 7)}` : ""}`);
+      else console.log(`issue ${n}: catalina check FAILED\n${r.reasons.map((x) => `  - ${x}`).join("\n")}`);
+      return r.exit;
+    }
+    case "pre-push": {
+      const stdin = require("fs").readFileSync(0, "utf8");
+      return require(path.join(lib, "prepush")).run(argv, stdin);
+    }
+    case "gate": {
+      if (opt("--pr")) {
+        let r;
+        try {
+          r = require(path.join(lib, "ghguard")).prGate({ pr: opt("--pr"), repo: opt("-R") || opt("--repo") });
+        } catch (e) {
+          r = { ok: false, error: e.message, reasons: [`catalina gate couldn't run: ${e.message}`] };
+        }
+        delete r.dir;
+        console.log(flag("--json") ? JSON.stringify(r) : `${r.ok ? "passed" : `FAILED\n${r.reasons.map((x) => `  - ${x}`).join("\n")}`}`);
+        return r.ok ? 0 : 1;
+      }
+      const tip = argv.find((a) => !a.startsWith("--") && a !== opt("--remote"));
+      if (!tip) return usage();
+      const r = require(path.join(lib, "prepush")).branchGate(tip, process.cwd(), opt("--remote") || "origin");
+      if (flag("--json")) console.log(JSON.stringify(r));
+      else if (r.ok) console.log(`${r.sha.slice(0, 7)}: catalina gate passed${r.adopted ? "" : " (project not adopted)"}`);
+      else console.log(`${r.sha.slice(0, 7)}: catalina gate FAILED\n${r.reasons.map((x) => `  - ${x}`).join("\n")}`);
+      return r.ok ? 0 : 1;
+    }
+    case "audit":
+      return require(path.join(lib, "audit")).main({
+        since: opt("--since") || "72h",
+        dryRun: flag("--dry-run"),
+        shadowReport: flag("--shadow-report"),
+        json: flag("--json"),
+      });
+    case "recall":
+      return require(path.join(lib, "recall")).main({ paths: (opt("--paths") || "").split(",").filter(Boolean), epic: opt("--epic") });
+    case "doctor":
+      return require(path.join(lib, "doctor")).main({ also: opts("--also") });
+    default:
+      return usage();
+  }
+}
+
+function usage() {
+  process.stderr.write(require("fs").readFileSync(__filename, "utf8").match(/\/\*\*([\s\S]*?)\*\//)[1].replace(/^ \* ?/gm, "") + "\n");
+  return 2;
+}
+
+process.exitCode = main();

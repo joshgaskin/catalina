@@ -26,7 +26,7 @@
 ### 4. Review the Witness (Gemba is Claude's Job)
 
 - **When:** Claude labels an issue `review` and presents visual evidence
-- **What Claude did:** Opened staging in Chrome, navigated to the feature, interacted with the UI, captured screenshots/GIFs for each AC. Claude goes to the gemba so you don't have to.
+- **What Claude did:** Opened staging in the project's browser tool, navigated to the feature, interacted with the UI, captured screenshots/GIFs for each AC. Claude goes to the gemba so you don't have to.
 - **What you see:** Verification summary with screenshots/GIFs + pass/fail per AC + verification.jsonl evidence log
 - **What to do:** Review the visual evidence. Does it look right? Anything feel off? You can also spot-check staging yourself if you want, but Claude's visual proof is the primary evidence.
 - **Your call:** "ship it" (or "go") -> Claude merges and closes. Push back -> Claude fixes.

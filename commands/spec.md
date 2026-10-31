@@ -38,7 +38,13 @@ You are **Brunel** (the Developer). Your priority is shipping working code that 
    - Data flows affected
    - Current behavior vs desired behavior
 
-3. **Determine if a domain agent should inform the questioning:**
+3. **Recall lessons (DO NOT SKIP):** once you know which files and directories will change, run:
+   ```bash
+   catalina recall --paths <file-or-dir>,<file-or-dir> [--epic <E>]
+   ```
+   It prints the `## Lessons` that past issues touching the same code (or the same epic) left behind. Tracking files are the memory: read them, let them shape your questions and design, and paste the output into `## Lessons applied` with one line per lesson on how you applied it. "None found" is a fine answer; a missing section fails `catalina check`.
+
+4. **Determine if a domain agent should inform the questioning:**
    Check if the project's CLAUDE.md defines domain agents. If so, let the relevant domain agent's perspective shape your questions — they'll flag business rules, data constraints, and domain-specific edge cases that a pure developer would miss.
 
 ## Phase 2: Interrogate
@@ -130,15 +136,19 @@ Now write the spec with full context from the answers.
    - [ ] AC2: ...
 
    ## Design Notes
-   {Architecture decisions, files to modify, existing patterns to follow, trade-offs}
+   {`Epic: #E` on its own line when there is one — `catalina recall --epic` finds siblings by it}
+   {Architecture decisions, files to modify (in backticks, so recall can match them later), existing patterns to follow, trade-offs}
    {Key decisions from answers that shaped the spec}
    {If domain agent perspective was consulted, note the relevant business rules}
 
    ## Premortem
-   {Top failure modes from Chesterton, ranked by likelihood × cost.
-    Format: `- **{Scenario}** — early sign: {x}; mitigation: {y}`.
-    Trivial tickets may state "No significant failure modes."
-    /witness reads this to check predicted-vs-actual at review time.}
+   - **P1 {Scenario}** — early sign: {x}; mitigation: {y}
+   {Chesterton's top failure modes, ranked by likelihood × cost, each with an ID (P1, P2…).
+    A trivial ticket writes one line instead: `Trivial: <reason>`.
+    /witness writes one verification line per ID; `catalina check` fails on a missing one.}
+
+   ## Lessons applied
+   {Output of `catalina recall` (Phase 1, step 3), with how each lesson shaped this spec — or "None found".}
 
    ## Cache Invalidation Plan
    {Required ONLY if the change affects derived data that lives in a cache.
@@ -161,11 +171,6 @@ Now write the spec with full context from the answers.
    - [ ] Implementation complete
    - [ ] Deployed to staging
    - [ ] Witnessed on staging
-
-   ## Pipeline State
-   - Current phase: spec / awaiting approval
-   - Next agent: Brunel (implement) on approval
-   - Bounce count: 0
    ```
 
    Every AC must be specific and testable. "Works correctly" is not an AC. "Clicking Save persists the record and shows a success toast" is.
@@ -196,9 +201,9 @@ Now write the spec with full context from the answers.
    > - **Trivial** (≤3 files, no shared utils, no new patterns): one short paragraph; usually "no significant failure modes."
    > - **Non-trivial** (>3 files OR shared utils OR new patterns): full ranked list of 3–5 failure modes.
    >
-   > Output two sections: **Fence findings** and **Premortem**. Premortem format: `- **{Scenario}** — early sign: {x}; mitigation: {y}`.
+   > Output two sections: **Fence findings** and **Premortem**. Premortem format, numbered: `- **P1 {Scenario}** — early sign: {x}; mitigation: {y}`. For a trivial ticket, one line: `Trivial: <reason>`.
 
-   Fold the fence findings into Design Notes. Write the premortem verbatim (or condensed) into the `## Premortem` section of tracking.md. If mitigations require AC changes, apply them before presenting.
+   Fold the fence findings into Design Notes. Write the premortem into the `## Premortem` section of tracking.md, keeping the IDs — **always written down, on every ticket**: a review that ran but isn't in the file didn't happen as far as the gate is concerned. Record the review in `## Review History`. If mitigations require AC changes, apply them before presenting.
 
 5. **Ensure label:**
    ```bash
@@ -226,5 +231,9 @@ Now write the spec with full context from the answers.
    command (see the Auto-Handoff Pipeline in `reference/ilr-system.md`). The only proceed word at
    this gate is "approved"; **"go"/"ship" belongs to the ship gate, not here.** Treat a same-turn
    follow-up (extra AC, "oh also…", `/capture`) as an **amend, not a proceed**, and emit a one-line
-   "starting implementation — last call to amend" before you begin. Update the tracking.md
-   `## Pipeline State` block at the handoff (phase → implement, next agent → Feynman for witness).
+   "starting implementation — last call to amend" before you begin.
+
+## Project rules
+
+<!-- overlay -->
+!`cat .claude/catalina/spec.local.md 2>/dev/null || true`
