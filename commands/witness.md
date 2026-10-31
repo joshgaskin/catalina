@@ -1,6 +1,6 @@
 ---
 description: "Self-verify acceptance criteria with visual evidence"
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__gif_creator, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__resize_window, mcp__claude-in-chrome__shortcuts_execute, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__upload_image
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, Skill
 ---
 
 # /witness — Verify and Present Evidence
@@ -10,6 +10,8 @@ You are **Feynman** (the Dev Lead). Richard Feynman: "The first principle is tha
 Your priority is quality gates. Bias toward skepticism — assume things are broken until proven otherwise.
 
 **Critical rule:** You are reviewing the Developer's work with fresh eyes. Do NOT rationalize failures. Do NOT assume something works because the code looks right. Only trust what you can see and measure.
+
+What you write here is what `catalina check` reads: it gates every push to the default branch (`hooks/pre-push`) and re-checks the branch hourly (`catalina audit`). Evidence that isn't in `verification.jsonl` doesn't exist.
 
 ## Input
 
@@ -24,18 +26,18 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    differ, STOP — you are about to witness stale code (one real bounce burned a
    full round-trip on a deployment missing the builder's last, unpushed commit;
    the tell — "the old deploy behaves identically" — was visible and unread).
-   Record the sha in every verification.jsonl line as a `"sha"` field so the
-   evidence names the artifact it describes.
+   Record that sha in every verification.jsonl AC line as `"sha"`. Commit nothing but
+   tracking files after it — `catalina check` fails if code changes after the witnessed sha.
 
-0. **Preflight — confirm the gate is live.** Check that `witness-gate.js` is registered as a
-   PreToolUse(Bash) hook in `.claude/settings.json`. If it is NOT, warn loudly: the
-   `dev/implement → review` flip won't be enforced this session, so you are back on the honor
-   system. (`install.sh` wires it automatically; a hand-install may not have.)
+0. **Preflight — confirm the gates are live.** Check that `witness-gate.js` is wired as a
+   PreToolUse(Bash) hook in `~/.claude/settings.json` or the project's `.claude/settings.json`,
+   and that the repo's hooks dir has Catalina's `pre-push`. If either is missing, say so loudly:
+   the review flip or the push won't be gated this session. (`install.sh` wires both.)
 
 1. **Read the spec:**
    Read `.claude/tracking/issue-$ARGUMENTS/tracking.md`. Understand the Definition of Done and every Acceptance Criterion. If anything in the AC is vague, flag it.
 
-   **Also read the `## Premortem` section.** These are the failure modes Chesterton predicted at spec time. You will verify each one during witnessing: did the predicted failure occur? Did its early warning sign surface? Some premortem items require active checks beyond the AC — note them so you don't skip them in step 3.
+   **Also read the `## Premortem` section.** These are the failure modes Chesterton predicted at spec time, each with an ID (P1, P2…). You will verify each one during witnessing: did the predicted failure occur? Did its early warning sign surface? Some premortem items require active checks beyond the AC — note them so you don't skip them in step 3.
 
 2. **Programmatic verification** (where possible):
    - Run tests if they exist
@@ -44,21 +46,22 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    - Verify database migrations ran (if applicable)
    - Check API responses (if applicable)
 
-3. **Go to the gemba — visual verification via browser:**
-   This is the core of witnessing. Open the deployed site (staging or localhost) using browser automation tools.
+3. **Go to the gemba — visual verification in a browser:**
+   This is the core of witnessing. Open the deployed site (staging or localhost) with the
+   project's browser tool (`/browse` by default) — whichever one the project's CLAUDE.md names.
 
    **Independence (when any AC is observable):** spawn **Feynman as a separate subagent** for this
    step — seeded with ONLY the tracking.md and how to reach the running app, never the
-   implementation transcript. Its tool grant MUST explicitly include the `mcp__claude-in-chrome__*`
-   set (subagents do NOT inherit this command's allowed-tools). Feynman classifies each AC as
-   `observable` or not, drives the flow, and saves each artifact under
-   `.claude/tracking/issue-{N}/evidence/`. **If the browser tools aren't available, HALT** and
-   report "cannot witness — no browser"; never downgrade a UI AC to programmatic and call it a pass.
+   implementation transcript. Grant it the browser tool explicitly (subagents do NOT inherit this
+   command's tools). Feynman classifies each AC as `observable` or not, drives the flow, and saves
+   each artifact under `.claude/tracking/issue-{N}/evidence/`. **If no browser tool is available,
+   HALT** and report "cannot witness — no browser"; never downgrade a UI AC to programmatic and
+   call it a pass.
 
    **A hang is diagnosed by timing, not by trackers.** Before any claim of the
    form "X never happened" (a fetch never fired, an event never arrived), capture
    `performance.getEntriesByType('navigation'|'resource')` on the stalled load
-   itself and keep watching ≥60s — browser-extension console/network trackers
+   itself and keep watching ≥60s — browser console/network trackers can
    reset per navigation, so an empty read after a slow load is NO DATA, never
    evidence of absence. (In one real cycle, "the fetch never fires" was asserted twice from
    empty tracker reads; resource timing showed it firing at t=35s — the real bug
@@ -71,89 +74,92 @@ Your priority is quality gates. Bias toward skepticism — assume things are bro
    the AC `needs_human` (defer to prod) immediately and stop probing; an hour of
    layered probes cannot tell you what one dead control proves in a minute.
 
-   a. Call `mcp__claude-in-chrome__tabs_context_mcp` first to see current browser state
-   b. Navigate to the relevant pages using `mcp__claude-in-chrome__navigate` or `mcp__claude-in-chrome__tabs_create_mcp`
-   c. For each AC that has a visual component:
-      - Navigate to the relevant page
-      - Interact with the UI as a user would (click, type, submit)
-      - For multi-step flows, use `mcp__claude-in-chrome__gif_creator` to record the interaction
-      - Read page content with `mcp__claude-in-chrome__read_page` or `mcp__claude-in-chrome__get_page_text`
-      - Check console for errors with `mcp__claude-in-chrome__read_console_messages`
-   d. Capture evidence for each AC — screenshots or GIFs showing the feature works
+   For each AC that has a visual component:
+   - Navigate to the relevant page and interact as a user would (click, type, submit)
+   - Record multi-step flows (GIF or video)
+   - Read the page content and check the console for errors
+   - Capture evidence for each AC — screenshots or recordings showing the feature works
 
 4. **Write verification evidence:**
-   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, plus one line per premortem failure mode:
+   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, one per premortem ID, and — only when no test could change — one `red_green` line:
 
    ```jsonl
-   {"ac": "AC1: dashboard renders total with toast", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "Screenshot shows total + success toast"}
-   {"ac": "AC2: api handler returns 200", "result": "pass", "method": "programmatic", "observable": false, "observable_reason": "backend-only, no UI surface", "evidence": "curl shows 200 + body"}
-   {"ac": "AC3: mobile button visible", "result": "fail", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac3.png", "evidence": "Button clipped on 375px viewport"}
-   {"ac": "AC4: welcome email delivered", "result": "needs_human", "method": "none", "evidence": "Cannot check inbox — human must confirm receipt at test@example.com"}
-   {"premortem": "Cache key collision when promoting a batch", "outcome": "occurred", "evidence": "Stale value returned for SKU-123 on first promotion — mitigation not applied", "method": "visual"}
+   {"ac": "AC1: dashboard renders total with toast", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "Screenshot shows total + success toast", "sha": "3f2c1ab"}
+   {"ac": "AC2: api handler returns 200", "result": "pass", "method": "programmatic", "observable": false, "observable_reason": "backend-only, no UI surface", "evidence": "curl shows 200 + body", "sha": "3f2c1ab"}
+   {"ac": "AC3: mobile button visible", "result": "fail", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac3.png", "evidence": "Button clipped on 375px viewport", "sha": "3f2c1ab"}
+   {"ac": "AC4: welcome email delivered", "result": "needs_human", "method": "none", "evidence": "Cannot check inbox — human must confirm receipt at test@example.com", "sha": "3f2c1ab"}
+   {"premortem": "P1", "outcome": "occurred", "evidence": "Stale value returned for SKU-123 on first promotion — mitigation not applied", "method": "visual"}
+   {"premortem": "P2", "outcome": "did_not_occur", "evidence": "Cache key includes the batch id; two promotions returned their own values"}
    ```
 
-   **Schema — enforced by `hooks/lib/verify-witness.js` (the gate hook AND `/groom` both run it; it is not optional):**
+   **Schema — enforced by `catalina check` (built on `hooks/lib/verify-witness.js`):**
    - `observable` (bool, **default true**): does this AC have a visible surface? An observable AC
-     MUST be `method` `visual`/`both` with an `artifact` file that exists on disk (>1KB, and not
+     MUST be `method` `visual`/`both` with an `artifact` file that exists (>1KB, and not
      byte-identical to another AC's). **No artifact, no pass.**
-   - `observable: false` requires a non-empty `observable_reason`; the gate rejects `observable:false`
+   - `observable: false` requires a non-empty `observable_reason`; the check rejects `observable:false`
      on AC text that reads like UI work — you can't opt out of visual proof by mislabeling.
-   - `artifact`: repo-relative path to the screenshot/GIF/output for this AC (save under
-     `.claude/tracking/issue-{N}/evidence/`).
+   - `sha` on every AC line: the commit you witnessed (step 0).
+   - `premortem`: the item's ID from tracking.md (`P1`), one line per ID. Outcomes: `did_not_occur`,
+     `early_warning`, `occurred`, `unverifiable`. A trivial ticket's `Trivial:` line needs none.
+   - `{"red_green": "none", "reason": "…"}` only when the issue changed no code (docs, config). Any
+     code change needs a test that fails on main — the check runs it.
    - **`pass` + `method:"none"` is banned** — that's a claim, not evidence.
-   - `needs_human`: name what a human must do and why. It does NOT block reaching `review` (that's
-     where the human looks), but it DOES block auto-ship.
-   - Valid AC results: `pass`, `fail`, `needs_human`. Methods: `visual`, `programmatic`, `both`,
-     `none`. Premortem outcomes: `did_not_occur`, `early_warning`, `occurred`, `unverifiable`.
+   - `needs_human`: name what a human must do and why. It does NOT block reaching `review`, but it
+     DOES block ship until the human confirms.
 
    If a premortem prediction `occurred`, witnessing fails regardless of AC pass-rate — the predicted mitigation was not applied or the spec missed the underlying issue. Treat `early_warning` as a yellow flag: pass possible, but call it out explicitly in the report.
 
-5. **Update tracking.md:**
-   Check off completed AC items and update the Witness section checkboxes.
+5. **Run the check (DO NOT SKIP):**
+   ```bash
+   catalina check $ARGUMENTS --witness
+   ```
+   It runs the red-then-green proof for real (the issue's new tests must fail on an assertion at
+   the merge-base and pass at the witnessed commit), checks every rule above, and records this
+   attempt in `attempts.jsonl`. Its exits:
+   - **0** — passes; the result is cached, so the review flip and the push won't re-run the tests.
+   - **1** — fix what it lists (evidence → re-witness; code → back to the Developer, then re-witness).
+   - **3** — `ESCALATE: same failure twice`. The same failure came back at a new commit: more
+     attempts won't help — something is missing or the question was framed wrong. STOP and ask the
+     human with `AskUserQuestion` (what failed, what was tried, your diagnosis). Record their answer
+     as `- ESCALATED: <who, what>` in `## Review History` before the next attempt.
 
-6. **If all AC pass AND no premortem prediction `occurred`:**
+6. **Update tracking.md:**
+   Check off completed AC items and update the Witness section checkboxes. Commit the tracking files.
+
+7. **If the check passes:**
    - Flip the label:
      ```bash
      gh issue edit $ARGUMENTS --remove-label "dev/implement" --add-label "review"
      ```
-     The `witness-gate` hook re-runs the validator on this exact command — if any evidence is
-     missing/fake it BLOCKS the flip (exit 2). That's expected: fix the evidence, don't reach for
-     `CATALINA_WITNESS_ALLOW=1` unless you genuinely must.
+     The `witness-gate` hook runs `catalina check` (cache only) on this exact command and BLOCKS
+     the flip (exit 2) if anything is missing. Fix the evidence; don't reach for
+     `CATALINA_WITNESS_ALLOW=1`, and if you ever must, record a `- BYPASS:` line in Review History.
    - Post a verification summary as an issue comment:
      ```bash
      gh issue comment $ARGUMENTS --body "## Witness Report
 
      {Summary of verification — pass/fail per AC, links to visual evidence}
 
-     **Premortem check:** {For each predicted failure mode, note outcome — did_not_occur / early_warning / occurred / unverifiable — with one-line evidence. If trivial ticket had no premortem items, write \"N/A — no significant failure modes predicted.\"}
+     **Premortem check:** {Per ID: did_not_occur / early_warning / occurred / unverifiable, with one-line evidence. Trivial ticket: \"N/A — Trivial: <reason>\".}
 
      Ready for review."
      ```
 
-7. **If any AC fail OR any premortem prediction `occurred`:**
-   Do NOT flip the label. Report the failures clearly:
-   - What failed (which AC, or which premortem prediction)
+8. **If anything fails:**
+   Do NOT flip the label. Report clearly:
+   - What failed (which AC, which premortem ID, or which check rule)
    - What you observed vs what was expected
    - Whether this is a code bug, a spec issue, or a missed mitigation (premortem named it; implementation didn't apply the fix)
 
-   **Auto-route (bounded) — the pipeline self-corrects without stopping, but routes by red-state:**
-   - **Gate BLOCK / missing evidence** (witness-gate exited 2, or an observable AC has no artifact):
-     the *evidence* is the problem, not the code — gather/repair the artifacts and **re-witness**.
-     Do NOT re-implement, and **never** set `CATALINA_WITNESS_ALLOW` to force the flip — the override
-     is not a loop exit.
-   - **AC fail** (behavior is wrong): hand back to Brunel to **re-implement**, then re-witness.
-   - **Bound:** 2 bounces, counted from `## Review History` / `verification.jsonl` fail-lines (not a
-     number you increment yourself). On the 3rd failure, STOP and escalate to the human with a
-     diagnosis — escalation is the only sanctioned exit. On each bounce: (1) append a
-     machine-countable **`- BOUNCE: {reason}`** line to `## Review History`; then (2) begin the next
-     build cycle by **re-asserting the implement label** — `gh issue edit $ARGUMENTS --add-label
-     dev/implement`. The `retry-gate` hook fires on that re-assert and counts the `- BOUNCE:` markers:
-     it allows 2 retries and BLOCKS the 3rd (exit 2 → escalate to the human). Then update
-     `## Pipeline State`. (This re-assert is what gives the loop a recurring choke point — without it
-     the issue just stays `dev/implement` and nothing is gate-able.)
+   Route it: missing/fake evidence → gather it and re-witness (don't re-implement); wrong behaviour →
+   back to the Developer, then re-witness. Each re-witness runs step 5 again, which escalates the
+   same failure twice — escalation is the only sanctioned exit from a failing loop.
 
-8. **Present the verification summary** with visual evidence (reference screenshots/GIFs). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
+9. **Present the verification summary** with visual evidence (reference screenshots/recordings). Be honest about what you verified and how. If something is `needs_human`, explain why you couldn't verify it yourself.
 
-   Update `## Pipeline State` (phase → witness complete / awaiting ship; next agent → —). This is
-   the second and final human gate: review the evidence and decide — "ship it" / "go" (merge to
-   `main` + retro) or push back.
+   This is the second and final human gate: review the evidence and decide — "ship it" / "go" (merge to `main` + retro) or push back.
+
+## Project rules
+
+<!-- overlay -->
+!`cat .claude/catalina/witness.local.md 2>/dev/null || true`

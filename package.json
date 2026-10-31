@@ -1,0 +1,6 @@
+{
+  "name": "catalina",
+  "private": true,
+  "bin": { "catalina": "bin/catalina" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}

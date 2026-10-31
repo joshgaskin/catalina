@@ -38,3 +38,8 @@ Parse the first token as the issue number, the rest as the change description.
    ```
 
 6. **Inform** of what changed and why, so expectations can be adjusted.
+
+## Project rules
+
+<!-- overlay -->
+!`cat .claude/catalina/capture.local.md 2>/dev/null || true`

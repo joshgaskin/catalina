@@ -14,6 +14,10 @@ allowed-tools: Bash, Read, Glob
 
 ## Steps
 
+**Before a spec:** `catalina recall --paths <files>,<dirs> [--epic E]` prints the `## Lessons` that
+past issues touching the same code left — /spec runs it and pastes the result into `## Lessons applied`.
+This command is the wider view: observations on the issue and its epic.
+
 ### 1. Resolve context
 
 If `$ARGUMENTS` is a number, use it directly. Otherwise:
@@ -98,13 +102,34 @@ If there are 3 or more observations, provide a one-paragraph synthesis:
 - What patterns emerge? (recurring failure types, same agent, same phase)
 - What should the current agent watch out for?
 - Any observations that suggest a rule change to CLAUDE.md?
-- **Post-ship retro (Deming):** Read the issue's `## Premortem` section in tracking.md and the premortem rows in `verification.jsonl`. Score each predicted failure as `accurate` (it occurred and the mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring misses or systemic overcaution = propose a rule change.
-
 Keep the synthesis brief — 2-4 sentences max.
 
-### 8. Return
+### 8. Post-ship retro — write the lessons (after "ship it" / "go")
 
-Do not take any further action. `/recall` is read-only — it loads context, it doesn't change anything. The agent receiving this context decides what to do with it.
+Observations are lessons, and the issue's tracking.md is where they last: the next `/spec` that
+touches the same files finds them with `catalina recall --paths …`. After ship, append to
+`.claude/tracking/issue-{N}/tracking.md`:
+
+```markdown
+## Lessons
+- P1 accurate | missed | overcautious — {what happened vs what was predicted}
+- {Lesson: one line, a constraint the next issue can act on, not a story. Name the file or the check it lives in.}
+```
+
+- Score every premortem ID from `## Premortem` against its `verification.jsonl` line: `accurate`
+  (it occurred, or its early sign showed, and the mitigation mattered), `missed` (a failure the
+  premortem didn't predict — add it as a lesson), `overcautious` (predicted, never close).
+- Fold in this issue's observations (step 3–4) that should outlive the issue.
+- **Put each lesson on the layer that owns it.** If it can be a test, a hook, a check rule or a
+  tool, file that as an issue and write the lesson as a pointer to it; prose is for what can't be
+  enforced. A lesson on the wrong layer is advice, and advice doesn't survive the next session.
+- No lessons? Write `- Clean cycle: premortem {n}/{n} did_not_occur` so the record shows the retro ran.
+
+Commit it (`Refs #N`); tracking-only commits pass the gate.
+
+### 9. Return
+
+Outside the retro, `/recall` is read-only — it loads context, it doesn't change anything. The agent receiving this context decides what to do with it.
 
 ## Output
 

@@ -100,6 +100,8 @@ EOF
 
 Say: **"Observed."** followed by a one-line summary of what was recorded and where (issue comment, epic comment, or local only).
 
+Observations are raw lessons: after ship, the retro (`/recall`, step 8) turns the ones worth keeping into the issue's `## Lessons`, where the next `/spec` finds them with `catalina recall`.
+
 Then **immediately return to whatever you were doing before**. Do not ask follow-up questions. Do not suggest next steps. Do not change labels or tracking state. This command is a side-channel — it must not disrupt flow.
 
 ## Output

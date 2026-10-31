@@ -10,7 +10,8 @@ The operational OS for running projects with Claude Code. This is where we keep 
 |---|---|
 | `commands/` | Reusable skills (/spec, /witness, /ship, /bug, etc.) — the Prestige Worldwide of slash commands |
 | `reference/` | ILR system docs, playbooks — did we just become best friends? |
-| `hooks/` | Post-edit formatting, type checking, lint guards — because this is a house of learned doctors |
+| `hooks/` | Guardrails, the witness gate, the `pre-push` gate, formatting, type checking — because this is a house of learned doctors |
+| `bin/catalina` + `lib/` | The gate in code: `check`, `pre-push`, `audit`, `recall`, `doctor` |
 | `CLAUDE.md` | Universal project rules — non-negotiable, like a drum set |
 
 ## The Rules
@@ -23,15 +24,26 @@ The operational OS for running projects with Claude Code. This is where we keep 
 ## Install
 
 ```bash
+# Once per machine
+git clone https://github.com/joshgaskin/catalina ~/.catalina
+
 # From your project root — it's happening, it's the wine mixer
-./catalina/install.sh
+~/.catalina/install.sh
 ```
+
+Everything is linked to the checkout, not copied. A project's own rules for a command go in
+`.claude/catalina/<command>.local.md`; the command pulls them in at its `<!-- overlay -->` marker.
+
+Then adopt the gate: commit `.catalina/config.json` to your default branch in `"mode": "shadow"`,
+watch `catalina audit --shadow-report` for a few days, and switch to `"enforce"`. Run
+`catalina audit` hourly from a cron. Details: `reference/ilr-system.md`, "The Gate".
 
 ## Update
 
 ```bash
 # When we optimise the system — hey, we're getting better
-git submodule update --remote .claude/os
+git -C ~/.catalina pull
+catalina doctor   # lists any copy that drifted from the package
 ```
 
 ## The Issue Lifecycle (ILR)
@@ -43,6 +55,11 @@ Create issue → /spec → approve → implement → /witness → ship → retro
 ```
 
 Every issue flows through this. No shortcuts. No "it's probably fine." This is the Catalina Wine Mixer of development workflows and we will not half-ass it.
+
+And not because a prompt says so: `catalina check` holds every push to the default branch to the
+spec, the premortem, the witness evidence and a test that really failed before the fix. Quick
+tasks pass unless they touch a `no_undo` path. Each shipped issue's `## Lessons` feeds the next
+`/spec` through `catalina recall` — the tracking files are the memory.
 
 ## Philosophy
 

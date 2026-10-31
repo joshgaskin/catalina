@@ -2,158 +2,155 @@
 # Catalina Install — It's the f***ing Catalina Wine Mixer
 #
 # Run from your project root:
-#   /path/to/catalina/install.sh
+#   ~/.catalina/install.sh
 #
 # What it does:
-#   1. Symlinks commands into .claude/commands/
-#   2. Symlinks ILR reference docs into .claude/reference/
-#   3. Copies Claude Code hooks (+ hooks/lib) to ~/.claude/hooks/ and auto-wires the
-#      witness gate into ~/.claude/settings.json
-#   4. Installs the commit-msg git hook (ILR issue-ref enforcement)
-#   5. Creates the ILR labels (epic, dev/design, dev/implement, review, blocked) via gh
-#   6. Reminds you to add project-specific CLAUDE.md rules
+#   1. Points ~/.catalina at this checkout (the git hooks find Catalina there)
+#   2. Links commands and ILR reference docs into .claude/ (a project's own rules go in
+#      .claude/catalina/<command>.local.md overlays, so a real copy is reported, not replaced)
+#   3. Links Claude Code hooks (+ hooks/lib) into ~/.claude/hooks and wires them in
+#      ~/.claude/settings.json; removes entries for hooks Catalina no longer ships
+#   4. Installs the commit-msg and pre-push git hooks
+#   5. Creates the ILR labels via gh (skip with CATALINA_SKIP_LABELS=1)
+#
+# Update later with: git -C ~/.catalina pull   (everything is linked, so that's all)
 
 set -euo pipefail
 
 CATALINA_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(pwd)"
+STAMP="$(date +%Y%m%d-%H%M%S)"
 
 echo "=== Catalina Wine Mixer ==="
 echo "Installing into: $PROJECT_DIR"
 echo ""
 
-# --- Commands ---
-mkdir -p "$PROJECT_DIR/.claude/commands"
-echo "Linking commands..."
-for cmd in "$CATALINA_DIR/commands/"*.md; do
-  name=$(basename "$cmd")
-  target="$PROJECT_DIR/.claude/commands/$name"
-  if [ -e "$target" ] && [ ! -L "$target" ]; then
-    echo "  SKIP $name (exists and is not a symlink — project override?)"
+# --- ~/.catalina ---
+if [ "$(cd "$HOME/.catalina" 2>/dev/null && pwd -P)" != "$(cd "$CATALINA_DIR" && pwd -P)" ]; then
+  if [ -e "$HOME/.catalina" ] && [ ! -L "$HOME/.catalina" ]; then
+    echo "  SKIP ~/.catalina exists and isn't a link — git hooks will look there, so point it at $CATALINA_DIR yourself"
   else
-    ln -sf "$cmd" "$target"
-    echo "  OK   $name"
+    ln -sfn "$CATALINA_DIR" "$HOME/.catalina"
+    echo "  OK   ~/.catalina -> $CATALINA_DIR"
   fi
-done
-
-# --- Reference docs ---
-mkdir -p "$PROJECT_DIR/.claude/reference"
-echo "Linking ILR reference docs..."
-for ref in "$CATALINA_DIR/reference/"*.md; do
-  name=$(basename "$ref")
-  target="$PROJECT_DIR/.claude/reference/$name"
-  if [ -e "$target" ] && [ ! -L "$target" ]; then
-    echo "  SKIP $name (exists and is not a symlink — project override?)"
-  else
-    ln -sf "$ref" "$target"
-    echo "  OK   $name"
-  fi
-done
-
-# --- Hooks ---
-HOOKS_DIR="$HOME/.claude/hooks"
-mkdir -p "$HOOKS_DIR"
-echo "Installing hooks to $HOOKS_DIR..."
-for hook in "$CATALINA_DIR/hooks/"*.js; do
-  name=$(basename "$hook")
-  target="$HOOKS_DIR/$name"
-  if [ -e "$target" ]; then
-    if cmp -s "$hook" "$target"; then
-      echo "  OK   $name (already up to date)"
-    else
-      echo "  DIFF $name (your version differs — not overwriting)"
-      echo "       Compare: diff $hook $target"
-    fi
-  else
-    cp "$hook" "$target"
-    echo "  OK   $name (copied)"
-  fi
-done
-
-# hooks/lib — shared modules (verify-witness.js, used by witness-gate.js AND /groom)
-if [ -d "$CATALINA_DIR/hooks/lib" ]; then
-  mkdir -p "$HOOKS_DIR/lib"
-  cp "$CATALINA_DIR/hooks/lib/"*.js "$HOOKS_DIR/lib/" 2>/dev/null && echo "  OK   lib/ (shared hook modules)"
+fi
+if [ -d "$HOME/.local/bin" ]; then
+  ln -sf "$CATALINA_DIR/bin/catalina" "$HOME/.local/bin/catalina" && echo "  OK   ~/.local/bin/catalina"
 fi
 
-# --- Auto-wire the witness gate into settings.json (idempotent) ---
-# Makes the "witness is enforced" claim true by default instead of a dormant reminder.
+# link_into <source> <target>: link, or report a real file that isn't the same.
+link_into() {
+  local src="$1" target="$2" name
+  name="$(basename "$target")"
+  if [ -L "$target" ] || [ ! -e "$target" ]; then
+    ln -sf "$src" "$target"
+    echo "  OK   $name"
+  elif cmp -s "$src" "$target"; then
+    ln -sf "$src" "$target"
+    echo "  OK   $name (identical copy replaced by a link)"
+  else
+    echo "  SKIP $name — a project copy that differs: move its project rules to the overlay"
+    echo "       .claude/catalina/${name%.md}.local.md, then delete it and re-run."
+  fi
+}
+
+# --- Commands + reference docs ---
+mkdir -p "$PROJECT_DIR/.claude/commands" "$PROJECT_DIR/.claude/reference" "$PROJECT_DIR/.claude/catalina"
+echo "Linking commands..."
+for cmd in "$CATALINA_DIR/commands/"*.md; do link_into "$cmd" "$PROJECT_DIR/.claude/commands/$(basename "$cmd")"; done
+echo "Linking ILR reference docs..."
+for ref in "$CATALINA_DIR/reference/"*.md; do link_into "$ref" "$PROJECT_DIR/.claude/reference/$(basename "$ref")"; done
+
+# --- Claude Code hooks (linked, so `git pull` updates them) ---
+HOOKS_DIR="$HOME/.claude/hooks"
+mkdir -p "$HOOKS_DIR/lib"
+echo "Linking hooks into $HOOKS_DIR..."
+link_hook() {
+  local src="$1" target="$2"
+  if [ -e "$target" ] && [ ! -L "$target" ] && ! cmp -s "$src" "$target"; then
+    mv "$target" "$target.bak-$STAMP"
+    echo "  BAK  $(basename "$target") -> $(basename "$target").bak-$STAMP (it differed)"
+  fi
+  ln -sf "$src" "$target"
+}
+for hook in "$CATALINA_DIR/hooks/"*.js; do link_hook "$hook" "$HOOKS_DIR/$(basename "$hook")"; done
+for lib in "$CATALINA_DIR/hooks/lib/"*.js; do link_hook "$lib" "$HOOKS_DIR/lib/$(basename "$lib")"; done
+echo "  OK   hooks linked"
+# Hooks Catalina no longer ships: drop our links and identical copies.
+for gone in phase-transition.js suggest-compact.js post-edit-console-warn.js retry-gate.js; do
+  t="$HOOKS_DIR/$gone"
+  if [ -L "$t" ]; then rm "$t"; echo "  DEL  $gone"; elif [ -f "$t" ]; then mv "$t" "$t.bak-$STAMP"; echo "  BAK  $gone (no longer shipped)"; fi
+done
+
+# --- settings.json: wire the hooks, drop retired ones, keep everything else ---
 SETTINGS="$HOME/.claude/settings.json"
 if command -v node >/dev/null 2>&1; then
-  echo "Wiring ILR gate hooks into $SETTINGS..."
-  SETTINGS_PATH="$SETTINGS" node <<'NODE' || echo "  warn: could not wire ILR gates (edit settings.json manually)"
+  echo "Wiring hooks into $SETTINGS..."
+  SETTINGS_PATH="$SETTINGS" HOOKS_DIR="$HOOKS_DIR" node <<'NODE'
 const fs = require("fs"), path = require("path");
-const p = process.env.SETTINGS_PATH;
+const p = process.env.SETTINGS_PATH, dir = process.env.HOOKS_DIR;
 let s = {};
 try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
 s.hooks = s.hooks || {};
-s.hooks.PreToolUse = s.hooks.PreToolUse || [];
-let changed = false;
-for (const h of ["witness-gate.js", "retry-gate.js"]) {
-  if (JSON.stringify(s.hooks.PreToolUse).includes(h)) {
-    console.log(`  OK   ${h} already wired`);
-  } else {
-    s.hooks.PreToolUse.push({ matcher: "Bash", hooks: [ { type: "command", command: `node ~/.claude/hooks/${h}` } ] });
-    changed = true;
-    console.log(`  OK   ${h} wired into PreToolUse(Bash)`);
-  }
+const RETIRED = ["phase-transition.js", "suggest-compact.js", "post-edit-console-warn.js", "retry-gate.js"];
+const OURS = ["pre-tool-guardrail.js", "witness-gate.js", "post-edit-format.js", "post-edit-typecheck.js"];
+const mentions = (e, names) => names.some((n) => JSON.stringify(e).includes(n));
+// Drop retired hooks and every entry of ours (re-added below with the current matchers).
+for (const ev of Object.keys(s.hooks)) {
+  s.hooks[ev] = s.hooks[ev]
+    .map((e) => ({ ...e, hooks: (e.hooks || []).filter((h) => !mentions(h, [...RETIRED, ...OURS])) }))
+    .filter((e) => e.hooks.length);
+  if (!s.hooks[ev].length) delete s.hooks[ev];
 }
-if (changed) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n"); }
+const add = (ev, matcher, file) => {
+  s.hooks[ev] = s.hooks[ev] || [];
+  const entry = { hooks: [{ type: "command", command: `node ${path.join(dir, file)}` }] };
+  s.hooks[ev].push(matcher ? { matcher, ...entry } : entry);
+};
+add("PreToolUse", "Bash", "pre-tool-guardrail.js");
+add("PreToolUse", "Bash", "witness-gate.js");
+add("PostToolUse", "Edit|Write", "post-edit-format.js");
+add("PostToolUse", "Edit|Write", "post-edit-typecheck.js");
+add("Stop", null, "post-edit-typecheck.js");
+fs.mkdirSync(path.dirname(p), { recursive: true });
+fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+console.log("  OK   guardrail + witness gate (PreToolUse Bash), format (Edit|Write), typecheck (once per turn, at Stop)");
 NODE
 else
-  echo "  SKIP gate wiring (node not found) — add witness-gate.js + retry-gate.js to $SETTINGS manually"
+  echo "  SKIP settings (node not found) — wire the hooks in $SETTINGS by hand"
 fi
 
-# --- Git commit-msg hook (ILR issue-ref enforcement) ---
-echo "Installing commit-msg git hook..."
+# --- Git hooks: commit-msg (issue refs) + pre-push (catalina check on the default branch) ---
+echo "Installing git hooks..."
 if git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   core_hooks_path="$(git -C "$PROJECT_DIR" config --get core.hooksPath || true)"
   if [ -n "$core_hooks_path" ]; then
-    case "$core_hooks_path" in
-      /*) hooks_dir="$core_hooks_path" ;;
-      *)  hooks_dir="$PROJECT_DIR/$core_hooks_path" ;;
-    esac
+    case "$core_hooks_path" in /*) hooks_dir="$core_hooks_path" ;; *) hooks_dir="$PROJECT_DIR/$core_hooks_path" ;; esac
   else
-    # --git-path resolves the real hooks dir even under worktrees/submodules
-    # (where .git is a file, not a directory).
     hooks_dir="$(git -C "$PROJECT_DIR" rev-parse --git-path hooks)"
-    case "$hooks_dir" in
-      /*) ;;
-      *)  hooks_dir="$PROJECT_DIR/$hooks_dir" ;;
-    esac
+    case "$hooks_dir" in /*) ;; *) hooks_dir="$PROJECT_DIR/$hooks_dir" ;; esac
   fi
-  src_hook="$CATALINA_DIR/hooks/commit-msg"
-  target_hook="$hooks_dir/commit-msg"
   mkdir -p "$hooks_dir"
-  if [ -e "$target_hook" ] && ! cmp -s "$src_hook" "$target_hook"; then
-    echo "  DIFF commit-msg (a different hook is already installed — not overwriting)"
-    echo "       Compare: diff \"$src_hook\" \"$target_hook\""
-    if [ -n "$core_hooks_path" ]; then
-      echo "       Note: core.hooksPath=$core_hooks_path — a hook manager (e.g. Husky) may own this."
+  for h in commit-msg pre-push; do
+    src="$CATALINA_DIR/hooks/$h" target="$hooks_dir/$h"
+    if [ -e "$target" ] && ! cmp -s "$src" "$target"; then
+      echo "  DIFF $h (a different hook is installed — not overwriting; compare: diff \"$src\" \"$target\")"
+    else
+      cp "$src" "$target" && chmod +x "$target" && echo "  OK   $h -> $target"
     fi
-  else
-    cp "$src_hook" "$target_hook"
-    chmod +x "$target_hook"
-    echo "  OK   commit-msg -> $target_hook"
+  done
+  if [ -n "$core_hooks_path" ]; then
+    echo "       core.hooksPath=$core_hooks_path is in the repo: commit the hooks so every clone and worktree has them."
   fi
 else
-  echo "  SKIP commit-msg (not a git repository)"
+  echo "  SKIP git hooks (not a git repository)"
 fi
 
-# --- Tracking directory ---
 mkdir -p "$PROJECT_DIR/.claude/tracking"
 
-# --- CLAUDE.md check ---
+# --- CLAUDE.md ---
 echo ""
-if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
-  echo "CLAUDE.md exists. Make sure it references Catalina's universal rules."
-  echo "Add this near the top if not already there:"
-  echo ""
-  echo '  ## OS Rules'
-  echo '  See `.claude/reference/ilr-system.md` for the full ILR system.'
-  echo '  Universal coding conventions are in the Catalina OS.'
-else
-  echo "No CLAUDE.md found. Creating a starter..."
+if [ ! -f "$PROJECT_DIR/CLAUDE.md" ]; then
   cat > "$PROJECT_DIR/CLAUDE.md" << 'TEMPLATE'
 # Project Name — Rules
 
@@ -165,53 +162,31 @@ Universal coding conventions are inherited from the Catalina OS.
 
 <!-- Add your project's stack, DB refs, API rules, nav conventions, domain agents, etc. -->
 TEMPLATE
-  echo "  Created CLAUDE.md — fill in the project-specific section."
+  echo "Created CLAUDE.md — fill in the project-specific section."
 fi
 
-# --- ILR labels (created via gh; runs LAST so a network/auth hiccup can't strand the install) ---
+# --- ILR labels (last, so a network/auth hiccup can't strand the install) ---
 echo ""
-echo "Creating ILR labels..."
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  # name|color|description  (colors mirror reference/ilr-system.md)
-  ilr_labels=(
-    "epic|8957E5|Business-outcome container"
-    "dev/design|FBCA04|Spec phase"
-    "dev/implement|0E8A16|Build phase"
-    "review|1D76DB|Waiting for witness"
-    "blocked|B60205|External dependency"
-  )
-  for entry in "${ilr_labels[@]}"; do
+if [ "${CATALINA_SKIP_LABELS:-}" = "1" ]; then
+  echo "Skipping labels (CATALINA_SKIP_LABELS=1)"
+elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo "Creating ILR labels..."
+  for entry in "epic|8957E5|Business-outcome container" "dev/design|FBCA04|Spec phase" "dev/implement|0E8A16|Build phase" "review|1D76DB|Waiting for witness" "blocked|B60205|External dependency" "catalina-unchecked|B60205|On the default branch without passing catalina check"; do
     IFS='|' read -r lname lcolor ldesc <<< "$entry"
-    if gh label create "$lname" --color "$lcolor" --description "$ldesc" --force >/dev/null 2>&1; then
-      echo "  OK   $lname"
-    else
-      echo "  warn: could not create label '$lname' (gh error — skipping)"
-    fi
+    gh label create "$lname" --color "$lcolor" --description "$ldesc" --force >/dev/null 2>&1 && echo "  OK   $lname" || echo "  warn: could not create label '$lname'"
   done
 else
-  echo "  SKIP labels (gh not found or not authenticated)."
-  echo "       Create manually: epic, dev/design, dev/implement, review, blocked"
+  echo "Skipping labels (gh not found or not authenticated)"
 fi
 
 echo ""
 echo "=== POW. ==="
 echo ""
-echo "Catalina is installed. Did we just become best friends?"
-echo ""
-echo "Installed the commit-msg git hook (rejects issue-* commits with no Refs #N)"
-echo "and the ILR labels (if gh was available)."
-echo ""
 echo "Next steps:"
-echo "  1. Fill in project-specific rules in CLAUDE.md"
-echo "  2. Define domain agents if needed (see ilr-system.md for the pattern)"
-echo "  3. Check that hooks are wired in ~/.claude/settings.json:"
+echo "  1. Adopt the gate: add .catalina/config.json (see reference/ilr-system.md, \"The gate\"),"
+echo "     starting in \"mode\": \"shadow\". Commit it to the default branch."
+echo "  2. Watch a few days of would-blocks: catalina audit --shadow-report; then switch to \"enforce\"."
+echo "  3. Run the audit hourly somewhere: catalina audit (files catalina-unchecked issues)."
+echo "  4. Check for drifted copies any time: catalina doctor"
 echo ""
-echo "     PreToolUse hooks needed:"
-echo "       - phase-transition.js on Edit|Write|Bash (replaces suggest-compact.js)"
-echo "       - pre-tool-guardrail.js on Bash"
-echo "     PostToolUse hooks needed:"
-echo "       - post-edit-format.js on Edit"
-echo "       - post-edit-typecheck.js on Edit"
-echo "       - post-edit-console-warn.js on Edit"
-echo ""
-echo "  4. There's so much room for activities"
+echo "  There's so much room for activities"

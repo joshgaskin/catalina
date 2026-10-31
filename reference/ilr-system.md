@@ -81,28 +81,24 @@ spec ──approve──▶ implement ──done──▶ witness ──pass─�
   implementation — last call to amend" so the old approve-then-a-beat pause survives.
 - **Automatic — implement → witness.** When implementation reports complete (see the Completion
   Report Contract in the playbook), `/witness` runs automatically.
-- **Automatic — routing on failure (bounded, split by red-state):**
-  - **Witness-gate BLOCK** (exit 2 — evidence missing/fake): gather/repair the evidence and
-    **re-witness**. Do NOT re-implement, and **never** use `CATALINA_WITNESS_ALLOW` to escape — the
-    override is not a loop exit; the hooks print a loud stderr notice (they don't post to the issue),
-    so any use must be recorded as a `- BYPASS:` line in `## Review History` for Deming to see at retro.
+- **Automatic — routing on failure:**
+  - **Evidence missing/fake** (`catalina check` or the witness gate lists it): gather/repair the
+    evidence and **re-witness**. Do NOT re-implement, and **never** use `CATALINA_WITNESS_ALLOW` to
+    escape — any use must be recorded as a `- BYPASS:` line in `## Review History` for the retro.
   - **AC FAIL** (wrong code): **re-implement**, then re-witness.
-  - The bound is **2 retries (3 build attempts)**. Each build cycle begins by re-asserting
-    `--add-label dev/implement` (witness.md's fail-route does this), and `hooks/retry-gate.js` counts
-    the `- BOUNCE:` markers in the `## Review History` section — allowing 2 retries and **blocking the
-    3rd** (exit 2). The count is working-tree text (a careless Review-History rewrite could reset it —
-    strong, not cryptographic). On the 3rd failure, STOP and escalate — escalation is the only
-    sanctioned exit from a failing loop.
+  - **The exit:** `catalina check <N> --witness` records each attempt in `attempts.jsonl`. When the
+    same failure comes back at a new commit, it exits 3 (`ESCALATE: same failure twice`): the loop
+    has stopped learning, so STOP and ask the human. Their answer goes in Review History as
+    `- ESCALATED: <who, what>`, which lets the next attempt run. Escalation is the only sanctioned
+    exit from a failing loop.
 - **Human gate 2 — ship ("go").** Witness pass → present evidence and stop. "go"/"ship" is valid
   **only here**, and means merge to `main` + retro.
 
-**Pipeline State is advisory; ground truth is authoritative.** The `## Pipeline State` block in
-tracking.md lets a compacted/resumed session see the current phase, next agent, and bounce count —
-but on resume, reconcile it against ground truth (labels + `verification.jsonl` + `git log --grep`)
-and, on conflict, trust ground truth. Never skip witness or re-run a phase on the state block alone.
+**Resuming:** the phase is in the labels, `verification.jsonl`, `attempts.jsonl` and
+`git log --grep "#N"`. Run `catalina check <N> --worktree` to see what's left.
 
 **One active pipeline per issue.** Two sessions auto-driving the same issue race on labels and
-Pipeline State — keep it single-writer.
+tracking files — keep it single-writer.
 
 ---
 
@@ -245,6 +241,14 @@ _Brunel · implementation phase · 2026-03-31T10:15Z_
 
 Epic comments include `"source_issue":{N}` in the JSON and show `from #{N}` in the heading.
 
+### Lessons: tracking files are the memory
+
+Observations are raw lessons. After ship, the retro (`/recall`, step 8) scores the premortem and
+writes the lessons worth keeping into the issue's `## Lessons`. At the next spec, `catalina recall
+--paths <files> [--epic E]` finds the lessons of every past issue that touched the same code or
+epic, and `/spec` writes them into `## Lessons applied` (the check requires the section). A lesson
+that can be a test, hook or check rule becomes one, and the lesson points at it.
+
 ### The "Mom's Watching" Effect
 
 When agents know their past failures are visible and queryable, they behave better. `/recall` at the start of a session loads this context. The observations don't need to be perfect — the act of recording and surfacing them is what drives improvement.
@@ -256,8 +260,9 @@ When agents know their past failures are visible and queryable, they behave bett
 ```
 .claude/tracking/
   issue-{N}/
-    tracking.md          # DoD + AC + design notes + review history
-    verification.jsonl   # Per-AC evidence log from /witness
+    tracking.md          # DoD + AC + design notes + premortem + lessons + review history
+    verification.jsonl   # Per-AC and per-premortem evidence from /witness
+    attempts.jsonl       # One line per `catalina check --witness` attempt (same failure twice → escalate)
     observations.jsonl   # Local observation fallback (offline backup)
 ```
 
@@ -276,10 +281,14 @@ When agents know their past failures are visible and queryable, they behave bett
 {Architecture decisions, files to modify, trade-offs}
 
 ## Premortem
-{Top failure modes from Chesterton: `- **{Scenario}** — early sign: {x}; mitigation: {y}`}
+- **P1 {Scenario}** — early sign: {x}; mitigation: {y}
+{or, for a trivial ticket, one line: `Trivial: <reason>`}
+
+## Lessons applied
+{`catalina recall --paths …` output and how it shaped the spec — or "None found"}
 
 ## Review History
-{Track review cycles — if this bounces 3 times, the spec was bad}
+{Spec reviews, witness rounds, `- ESCALATED:` answers, `- BYPASS:` lines}
 
 ## Witness
 - [ ] Spec approved
@@ -287,18 +296,18 @@ When agents know their past failures are visible and queryable, they behave bett
 - [ ] Deployed to staging
 - [ ] Witnessed on staging
 
-## Pipeline State
-- Current phase: {spec | implement | witness | ship}
-- Next agent: {Brunel | Feynman | — }
-- Bounce count: 0   (witness→implement bounces; derived from Review History — advisory, reconcile against ground truth on resume)
+## Lessons
+{Written by the post-ship retro (/recall step 8): premortem scored, one-line lessons}
 ```
 
 ### verification.jsonl Format
 
-One JSON line per AC:
+One JSON line per AC (each naming the witnessed `sha`) and one per premortem ID:
 ```jsonl
-{"ac": "AC1: Description", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "..."}
+{"ac": "AC1: Description", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "...", "sha": "3f2c1ab"}
+{"premortem": "P1", "outcome": "did_not_occur", "evidence": "..."}
 ```
+An issue that changed no code (docs, config) adds `{"red_green": "none", "reason": "..."}`.
 
 Valid results: `pass`, `fail`, `needs_human`
 Valid methods: `visual`, `programmatic`, `both`, `none`
@@ -306,7 +315,73 @@ Valid methods: `visual`, `programmatic`, `both`, `none`
 `observable` (default true) marks AC with a visible surface; an observable AC must be
 `visual`/`both` with an on-disk `artifact` (>1KB, unique) or the witness gate blocks the
 `review` flip. `observable:false` needs an `observable_reason` and is rejected on UI-sounding
-AC. `pass`+`method:none` is banned. See `hooks/lib/verify-witness.js` for the enforced rules.
+AC. `pass`+`method:none` is banned. See `hooks/lib/verify-witness.js` and `lib/check.js` for the enforced rules.
+
+---
+
+## The Gate: `catalina check`, pre-push, audit
+
+Rules in prompts only bind whoever has them loaded. The process is enforced in code, at the one
+place every path to the default branch passes — so it binds people, Claude Code sessions, headless
+builders and other agents alike.
+
+**`catalina check <N>`** passes only when issue N's committed tracking files show: a Definition of
+Done; AC; a Premortem with IDs (or `Trivial: <reason>`); `## Lessons applied`; a verification line
+per AC and per premortem ID with real artifacts; every AC line naming the witnessed sha, with only
+tracking files changed after it; and a **red-then-green proof run for real** — the issue's new or
+changed tests copied onto a temp checkout of the merge-base must fail there on an assertion (a
+missing module isn't red) and pass at the commit. A diff that changes no code may record a
+`red_green` exemption instead. `--witness` runs the red proof and caches it (by base + test
+blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
+
+**`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
+- commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
+- a commit with `Refs #N` (N ≥ `enforce_from`) needs issue N to pass `catalina check`;
+- any other commit is a **quick task**: it passes unless it touches a `no_undo` path.
+
+Other branches are never blocked. The config is read from the remote's default branch, never the
+pushed branch, and `.catalina/**` is always `no_undo`, so a branch can't loosen its own gate.
+`git push --no-verify` is refused in Claude Code sessions by the guardrail.
+
+**`catalina audit`** re-checks the last 72 h of the default branch (statelessly) and files one
+`catalina-unchecked` issue per commit that never passed — the backstop for merges done on GitHub
+(`gh pr merge`), hooks skipped outside Claude Code, and private repos where GitHub can't require a
+status check. Squash/merge commits are checked at their PR head, with the issue taken from the
+message, PR body or branch name (`issue-N-…`). At most 5 issues a run, plus one summary. Run it
+hourly from a cron, and in `/groom`.
+
+**`.catalina/config.json`** (on the default branch):
+
+```json
+{
+  "mode": "shadow",
+  "enforce_from": 120,
+  "no_undo": ["src/payments/**", "migrations/**", "src/lib/email/send*"],
+  "test_glob": ["**/*.test.*"],
+  "code_glob": ["src/**/*.{ts,tsx,js}"],
+  "red_cmd": "npx vitest run {files} --reporter=json --outputFile={report}",
+  "red_parser": "vitest",
+  "red_setup": "cp -al \"$CATALINA_ROOT/node_modules\" node_modules",
+  "red_timeout_s": 300
+}
+```
+
+- `enforce_from`: the first issue number held to the full check. Older issues are legacy and are
+  checked as quick tasks, so follow-up commits to them aren't blocked by old-format tracking files.
+- `no_undo`: paths where a mistake can't be taken back (money, migrations, customer sends,
+  tracking). Quick tasks never touch them; they always need an issue.
+- `red_parser`: `vitest` / `jest` (JSON report at `{report}`), `node-test`, or `exit-code`
+  (can't tell a load error from an assertion — use a real parser when one exists).
+
+**Shadow first.** A new project starts at `"mode": "shadow"`: nothing is blocked, and every
+would-block is logged to `$(git rev-parse --git-common-dir)/catalina/shadow.log`, shared by all
+worktrees. `catalina audit --shadow-report` prints it by day. Switch to `"enforce"` once a few days
+show only real problems.
+
+**Drift.** `install.sh` links hooks and commands to the Catalina checkout, so `git -C ~/.catalina
+pull` updates every project. A project's own rules go in `.claude/catalina/<command>.local.md`,
+pulled in at the command's `<!-- overlay -->` marker. `catalina doctor [--also <dir>]` lists any
+copy that has drifted from the package.
 
 ---
 
@@ -361,7 +436,11 @@ An issue that can't be definitively closed is a bad issue.
 | `/witness {N}` | Feynman | Self-verify AC, check premortem-vs-actual, capture visual evidence, label `review` |
 | `/capture {N} {what}` | Brunel | Mid-flight spec update |
 | `/observe {type} {text}` | Deming | Record observation on issue + epic (non-disruptive) |
-| `/recall [N]` | Deming | Load past observations into context |
+| `/recall [N]` | Deming | Load past observations into context; after ship, write `## Lessons` |
+| `catalina check <N> [--witness]` | — | The gate's check (see The Gate) |
+| `catalina audit [--dry-run] [--shadow-report]` | — | Re-check the default branch; file `catalina-unchecked` issues |
+| `catalina recall --paths a,b [--epic E]` | — | Lessons from past tracking files that touched the same code |
+| `catalina doctor [--also dir]` | — | List drifted copies of Catalina files |
 
 ---
 
@@ -369,19 +448,19 @@ An issue that can't be definitively closed is a bad issue.
 
 1. **Label lifecycle** — labels encode state transitions, managed by Claude
 2. **Commit-msg hook** — rejects commits without issue refs on `issue-*` branches
-3. **Witness is mandatory + enforced** — never skip `/witness`. The `dev/implement → review`
-   flip is gated: `hooks/witness-gate.js` (PreToolUse, defense-in-depth on the `gh` Bash path)
-   and the `/groom` witness sweep (the real guarantee — revalidates every `review` issue no
-   matter how it was labelled) both run `hooks/lib/verify-witness.js`, which blocks any issue
-   whose `verification.jsonl` is incomplete or whose observable-AC artifacts are missing/fake
+3. **Witness is mandatory + enforced** — never skip `/witness`. Three layers run the same
+   `catalina check`: `hooks/witness-gate.js` on the `dev/implement → review` flip, `hooks/pre-push`
+   on every push to the default branch, and `catalina audit` over what landed anyway (see The Gate)
 4. **Deming retro** — after every "ship it"/"go", run `/recall` to load observations, then review the cycle for process gaps. Compare the issue's `## Premortem` against what actually happened — flag each predicted failure as `accurate` (occurred + mitigation worked or didn't), `missed` (failure happened but wasn't predicted), or `overcautious` (predicted but never materialized). Recurring premortem misses or systemic overcaution warrant a rule change to CLAUDE.md.
 5. **Stale review detection** — `/groom` flags issues in `review` for >2 days
 6. **Never idle without handoff** — an agent ends a turn by handing off to the next agent,
    escalating via `AskUserQuestion`, or posting a completion report. A silent end is a stalled
-   pipeline. This is a convention that makes stalls *detectable on resume* (Pipeline State names a
-   next agent with no following commit), not a mechanical guarantee.
-7. **Auto-handoff routing** — the pipeline self-routes green→ship-gate / red→bounded loop (see
-   Auto-Handoff Pipeline). `CATALINA_WITNESS_ALLOW` is never a loop exit; escalation to the human is.
+   pipeline.
+7. **Auto-handoff routing** — the pipeline self-routes green→ship-gate / red→loop until the same
+   failure comes back twice (`catalina check` exit 3). `CATALINA_WITNESS_ALLOW` is never a loop
+   exit; escalation to the human is.
+8. **Hooks can't be skipped quietly** — the guardrail refuses `--no-verify` on push and commit;
+   the audit catches anything that lands another way.
 
 ---
 
