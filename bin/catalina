@@ -5,6 +5,7 @@
  *   catalina check <N> [--sha S] [--base B] [--worktree] [--witness]
  *   catalina pre-push <remote> <url>            (git hook; refs on stdin)
  *   catalina gate <tip> [--json] [--remote R]   (the push rule over a branch, before a GitHub merge)
+ *   catalina gate --pr N [-R owner/name] [--json] (the same on a PR's current head, fetched into ~/.catalina-gate)
  *   catalina audit [--since 72h] [--dry-run] [--shadow-report] [--json]
  *   catalina recall --paths a,b [--epic E]
  *   catalina doctor [--also <dir>]...
@@ -42,6 +43,17 @@ function main() {
       return require(path.join(lib, "prepush")).run(argv, stdin);
     }
     case "gate": {
+      if (opt("--pr")) {
+        let r;
+        try {
+          r = require(path.join(lib, "ghguard")).prGate({ pr: opt("--pr"), repo: opt("-R") || opt("--repo") });
+        } catch (e) {
+          r = { ok: false, error: e.message, reasons: [`catalina gate couldn't run: ${e.message}`] };
+        }
+        delete r.dir;
+        console.log(flag("--json") ? JSON.stringify(r) : `${r.ok ? "passed" : `FAILED\n${r.reasons.map((x) => `  - ${x}`).join("\n")}`}`);
+        return r.ok ? 0 : 1;
+      }
       const tip = argv.find((a) => !a.startsWith("--") && a !== opt("--remote"));
       if (!tip) return usage();
       const r = require(path.join(lib, "prepush")).branchGate(tip, process.cwd(), opt("--remote") || "origin");

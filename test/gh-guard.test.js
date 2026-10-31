@@ -89,3 +89,15 @@ test("gh-guard: every other gh command passes straight through", () => {
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(JSON.parse(r.stdout).number, 7);
 });
+
+test("gate --pr: the verdict on a PR head as JSON, for a tool filing a merge request", () => {
+  const s = setup("enforce", { omit: ["dod"] });
+  const r = spawnSync("node", [path.join(ROOT, "bin", "catalina"), "gate", "--pr", "7", "-R", "o/r", "--json"], {
+    cwd: s.repo.tmp, encoding: "utf8",
+    env: { ...process.env, CATALINA_REAL_GH: STUB, CATALINA_GH_STATE: path.join(s.repo.tmp, "gh-state.json"), CATALINA_GATE_DIR: path.join(s.repo.tmp, "gate") },
+  });
+  assert.strictEqual(r.status, 1, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.deepStrictEqual([out.pr, out.sha, out.ok, out.mode], [7, s.tip, false, "enforce"]);
+  assert.match(out.reasons.join(" "), /#301: no Definition of Done/);
+});
