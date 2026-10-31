@@ -69,7 +69,7 @@ function install(env = {}) {
   return {
     home,
     project,
-    run: () => spawnSync("bash", [path.join(ROOT, "install.sh")], { cwd: project, encoding: "utf8", env: { ...process.env, HOME: home, CATALINA_SKIP_LABELS: "1", ...env } }),
+    run: (...args) => spawnSync("bash", [path.join(ROOT, "install.sh"), ...args], { cwd: project, encoding: "utf8", env: { ...process.env, HOME: home, CATALINA_SKIP_LABELS: "1", ...env } }),
     settings: () => JSON.parse(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8")),
   };
 }
@@ -164,6 +164,24 @@ test("AC15: install links hooks and commands; an existing project copy is report
   assert.ok(fs.lstatSync(path.join(i.home, ".catalina")).isSymbolicLink());
   const hooksDir = sh("git", ["rev-parse", "--git-path", "hooks"], i.project).trim();
   assert.ok(fs.existsSync(path.join(i.project, hooksDir, "pre-push")), "pre-push installed");
+});
+
+test("AC15: install --user links commands into ~/.claude/commands, so every worktree of the project gets them", () => {
+  const i = install();
+  fs.mkdirSync(path.join(i.project, ".claude", "commands"), { recursive: true });
+  fs.writeFileSync(path.join(i.project, ".claude", "commands", "spec.md"), "an old tracked copy\n");
+  const r = i.run("--user");
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(fs.lstatSync(path.join(i.home, ".claude", "commands", "witness.md")).isSymbolicLink());
+  assert.ok(!fs.existsSync(path.join(i.project, ".claude", "commands", "witness.md")), "no project link");
+  // A project copy would shadow the user-level command: it is reported, not left silently.
+  assert.match(r.stdout, /spec\.md.*shadows/);
+  const doctor = spawnSync("node", [path.join(ROOT, "bin", "catalina"), "doctor"], { cwd: i.project, encoding: "utf8", env: { ...process.env, HOME: i.home } });
+  assert.strictEqual(doctor.status, 1);
+  assert.match(doctor.stdout, /project\/\.claude\/commands\/spec\.md: differs/);
+  fs.rmSync(path.join(i.project, ".claude", "commands", "spec.md"));
+  const clean = spawnSync("node", [path.join(ROOT, "bin", "catalina"), "doctor"], { cwd: i.project, encoding: "utf8", env: { ...process.env, HOME: i.home } });
+  assert.strictEqual(clean.status, 0, clean.stdout);
 });
 
 test("AC15: doctor exits 1 listing drifted copies, 0 when all are links or identical", () => {

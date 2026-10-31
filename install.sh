@@ -2,7 +2,10 @@
 # Catalina Install — It's the f***ing Catalina Wine Mixer
 #
 # Run from your project root:
-#   ~/.catalina/install.sh
+#   ~/.catalina/install.sh          # commands linked into the project's .claude/commands
+#   ~/.catalina/install.sh --user   # commands linked into ~/.claude/commands instead, for a
+#                                   # project worked on in many worktrees (untracked project
+#                                   # links don't reach a fresh worktree; user-level commands do)
 #
 # What it does:
 #   1. Points ~/.catalina at this checkout (the git hooks find Catalina there)
@@ -19,6 +22,8 @@ set -euo pipefail
 
 CATALINA_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(pwd)"
+USER_COMMANDS=0
+[ "${1:-}" = "--user" ] && USER_COMMANDS=1
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 echo "=== Catalina Wine Mixer ==="
@@ -55,11 +60,27 @@ link_into() {
 }
 
 # --- Commands + reference docs ---
-mkdir -p "$PROJECT_DIR/.claude/commands" "$PROJECT_DIR/.claude/reference" "$PROJECT_DIR/.claude/catalina"
-echo "Linking commands..."
-for cmd in "$CATALINA_DIR/commands/"*.md; do link_into "$cmd" "$PROJECT_DIR/.claude/commands/$(basename "$cmd")"; done
-echo "Linking ILR reference docs..."
-for ref in "$CATALINA_DIR/reference/"*.md; do link_into "$ref" "$PROJECT_DIR/.claude/reference/$(basename "$ref")"; done
+mkdir -p "$PROJECT_DIR/.claude/catalina"
+if [ "$USER_COMMANDS" = 1 ]; then
+  mkdir -p "$HOME/.claude/commands"
+  echo "Linking commands into ~/.claude/commands..."
+  for cmd in "$CATALINA_DIR/commands/"*.md; do
+    name="$(basename "$cmd")"
+    link_into "$cmd" "$HOME/.claude/commands/$name"
+    p="$PROJECT_DIR/.claude/commands/$name"
+    if [ -e "$p" ] && ! { [ -L "$p" ] && [ "$(cd "$(dirname "$p")" && pwd -P)/$(basename "$(readlink "$p")")" = "$(cd "$CATALINA_DIR/commands" && pwd -P)/$name" ]; }; then
+      echo "  SKIP $name — the project's copy shadows the user-level command: move its project rules to"
+      echo "       .claude/catalina/${name%.md}.local.md, then delete it from the project."
+    fi
+  done
+  echo "  Reference docs stay in $CATALINA_DIR/reference (point CLAUDE.md there)."
+else
+  mkdir -p "$PROJECT_DIR/.claude/commands" "$PROJECT_DIR/.claude/reference"
+  echo "Linking commands..."
+  for cmd in "$CATALINA_DIR/commands/"*.md; do link_into "$cmd" "$PROJECT_DIR/.claude/commands/$(basename "$cmd")"; done
+  echo "Linking ILR reference docs..."
+  for ref in "$CATALINA_DIR/reference/"*.md; do link_into "$ref" "$PROJECT_DIR/.claude/reference/$(basename "$ref")"; done
+fi
 
 # --- Claude Code hooks (linked, so `git pull` updates them) ---
 HOOKS_DIR="$HOME/.claude/hooks"
