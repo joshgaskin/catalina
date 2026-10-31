@@ -101,3 +101,15 @@ test("AC8: --shadow-report groups the shared shadow log by day", () => {
   assert.deepStrictEqual(r.days.map((d) => d.count).sort(), [1, 2]);
   assert.ok(!JSON.stringify(r.days).includes("too old"));
 });
+
+test("audit --json prints the findings for a cron to read", () => {
+  const { repo, pulls, money, bad } = fixture();
+  withGh(repo, { pulls });
+  const { spawnSync } = require("child_process");
+  const r = spawnSync("node", [path.join(__dirname, "..", "bin", "catalina"), "audit", "--dry-run", "--json"], { cwd: repo.cwd, encoding: "utf8", env: process.env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.strictEqual(out.adopted, true);
+  assert.deepStrictEqual(out.findings.map((f) => f.sha).sort(), [money, bad.tip].sort());
+  assert.ok(out.findings.every((f) => Array.isArray(f.reasons) && f.reasons.length));
+});
