@@ -1,0 +1,63 @@
+#!/usr/bin/env node
+/**
+ * catalina — the ILR's checks as code.
+ *
+ *   catalina check <N> [--sha S] [--base B] [--worktree] [--witness]
+ *   catalina pre-push <remote> <url>            (git hook; refs on stdin)
+ *   catalina audit [--since 72h] [--dry-run] [--shadow-report]
+ *   catalina recall --paths a,b [--epic E]
+ *   catalina doctor [--also <dir>]...
+ */
+const path = require("path");
+const lib = path.join(__dirname, "..", "lib");
+
+const argv = process.argv.slice(2);
+const cmd = argv.shift();
+const flag = (name) => argv.includes(name);
+const opt = (name) => {
+  const i = argv.indexOf(name);
+  return i === -1 ? undefined : argv[i + 1];
+};
+const opts = (name) => argv.flatMap((a, i) => (a === name ? [argv[i + 1]] : []));
+
+function main() {
+  switch (cmd) {
+    case "check": {
+      const n = argv.find((a) => /^#?\d+$/.test(a));
+      if (!n) return usage();
+      const r = require(path.join(lib, "check")).check(n.replace("#", ""), {
+        sha: opt("--sha"),
+        base: opt("--base"),
+        source: flag("--worktree") || flag("--witness") ? "worktree" : "commit",
+        witness: flag("--witness"),
+        red: flag("--witness") ? "run" : "miss",
+      });
+      if (r.ok) console.log(`issue ${n}: catalina check passed${r.sha ? ` at ${r.sha.slice(0, 7)}` : ""}`);
+      else console.log(`issue ${n}: catalina check FAILED\n${r.reasons.map((x) => `  - ${x}`).join("\n")}`);
+      return r.exit;
+    }
+    case "pre-push": {
+      const stdin = require("fs").readFileSync(0, "utf8");
+      return require(path.join(lib, "prepush")).run(argv, stdin);
+    }
+    case "audit":
+      return require(path.join(lib, "audit")).main({
+        since: opt("--since") || "72h",
+        dryRun: flag("--dry-run"),
+        shadowReport: flag("--shadow-report"),
+      });
+    case "recall":
+      return require(path.join(lib, "recall")).main({ paths: (opt("--paths") || "").split(",").filter(Boolean), epic: opt("--epic") });
+    case "doctor":
+      return require(path.join(lib, "doctor")).main({ also: opts("--also") });
+    default:
+      return usage();
+  }
+}
+
+function usage() {
+  process.stderr.write(require("fs").readFileSync(__filename, "utf8").match(/\/\*\*([\s\S]*?)\*\//)[1].replace(/^ \* ?/gm, "") + "\n");
+  return 2;
+}
+
+process.exitCode = main();

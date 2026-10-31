@@ -1,0 +1,21 @@
+#!/bin/sh
+# Catalina ILR — pre-push git hook.
+# Every push to the default branch passes `catalina check` (or, for a commit with no
+# issue, stays out of the project's no_undo paths). See reference/ilr-system.md.
+#
+# Install: install.sh copies this into the repo's hooks dir (core.hooksPath or .git/hooks).
+# It only delegates, so it never needs updating: the logic lives in the Catalina checkout.
+home="${CATALINA_HOME:-$HOME/.catalina}"
+if [ -x "$home/bin/catalina" ]; then
+  exec "$home/bin/catalina" pre-push "$@"
+fi
+
+# Catalina isn't installed on this machine. Enforce mode fails closed.
+ref=$(git symbolic-ref --short "refs/remotes/$1/HEAD" 2>/dev/null || echo "$1/main")
+if git show "$ref:.catalina/config.json" 2>/dev/null | grep -q '"mode"[[:space:]]*:[[:space:]]*"enforce"'; then
+  echo "catalina: push blocked — Catalina isn't installed here (looked in $home)." >&2
+  echo "  Install: git clone https://github.com/joshgaskin/catalina ~/.catalina && (cd <project> && ~/.catalina/install.sh)" >&2
+  exit 1
+fi
+echo "catalina: not installed (looked in $home); push allowed because this project is in shadow mode." >&2
+exit 0
