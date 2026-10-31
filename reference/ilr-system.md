@@ -339,7 +339,8 @@ blobs, in the git common dir); every other caller reads the cache and runs only 
 - a commit with `Refs #N` (N ≥ `enforce_from`) needs issue N to pass `catalina check`;
 - any other commit is a **quick task**: it passes unless it touches a `no_undo` path.
 
-Other branches are never blocked. The config is read from the remote's default branch, never the
+A merge done on GitHub (`gh pr merge`) runs no pre-push, so a merge bot runs `catalina gate <PR head>
+--json` first: the same rule over the commits the branch adds. Other branches are never blocked. The config is read from the remote's default branch, never the
 pushed branch, and `.catalina/**` is always `no_undo`, so a branch can't loosen its own gate.
 `git push --no-verify` is refused in Claude Code sessions by the guardrail.
 
@@ -438,6 +439,7 @@ An issue that can't be definitively closed is a bad issue.
 | `/observe {type} {text}` | Deming | Record observation on issue + epic (non-disruptive) |
 | `/recall [N]` | Deming | Load past observations into context; after ship, write `## Lessons` |
 | `catalina check <N> [--witness]` | — | The gate's check (see The Gate) |
+| `catalina gate <tip> [--json]` | — | The push rule over a branch, before a GitHub merge |
 | `catalina audit [--dry-run] [--shadow-report]` | — | Re-check the default branch; file `catalina-unchecked` issues |
 | `catalina recall --paths a,b [--epic E]` | — | Lessons from past tracking files that touched the same code |
 | `catalina doctor [--also dir]` | — | List drifted copies of Catalina files |

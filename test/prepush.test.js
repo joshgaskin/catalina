@@ -109,3 +109,35 @@ test("AC5: enforce mode with Catalina missing fails closed", () => {
   }
   assert.strictEqual(code, 1);
 });
+
+// `catalina gate <tip>`: the push rule over a branch's commits, for a merge done on GitHub.
+const gateCli = (repo, ...args) => {
+  const r = spawnSync("node", [path.join(ROOT, "bin", "catalina"), "gate", ...args], { cwd: repo.cwd, encoding: "utf8" });
+  return { code: r.status, out: r.stdout, json: (() => { try { return JSON.parse(r.stdout); } catch { return null; } })() };
+};
+
+test("gate: a branch whose issue fails is refused, naming the tip; a passing one is ok", () => {
+  const repo = makeRepo();
+  buildIssue(repo, 101, { omit: ["dod"] });
+  const tip = repo.git("rev-parse", "HEAD").trim();
+  const bad = gateCli(repo, "HEAD", "--json");
+  assert.strictEqual(bad.code, 1, bad.out);
+  assert.strictEqual(bad.json.ok, false);
+  assert.strictEqual(bad.json.sha, tip);
+  assert.ok(bad.json.reasons.some((r) => /#101: no Definition of Done/.test(r)), bad.out);
+
+  buildIssue(repo, 102);
+  const ok = gateCli(repo, "HEAD", "--json");
+  assert.strictEqual(ok.code, 0, ok.out);
+  assert.deepStrictEqual([ok.json.ok, ok.json.reasons], [true, []]);
+});
+
+test("gate: a quick branch passes unless it touches no_undo", () => {
+  const repo = makeRepo();
+  repo.git("checkout", "-q", "-b", "quick");
+  repo.write("payments/charge.js", "module.exports = 1;\n");
+  repo.commit("quick fix");
+  const r = gateCli(repo, "HEAD", "--json");
+  assert.strictEqual(r.code, 1);
+  assert.match(r.json.reasons.join("\n"), /payments\/charge\.js \(no_undo\)/);
+});
