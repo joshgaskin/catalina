@@ -53,6 +53,14 @@ const DENYLIST = [
       "Checking out a branch another worktree already has is blocked: worktrees share branch refs but not files, so the other checkout's files silently go stale under its branch (a real incident: a build merged into the shared integration branch this way and left the main checkout's files hours behind its own branch, one 'commit -a' away from reverting the morning's work). To merge into a shared branch, use a detached checkout: git checkout --detach origin/<branch> && git merge --no-ff <your-branch> && git push origin HEAD:<branch>.",
   },
   {
+    name: "no-verify",
+    unquoted: true, // a commit message mentioning "-n" isn't a flag
+    // `git push -n` is --dry-run, so only the long flag counts for push; for commit, -n is --no-verify.
+    pattern: /(?:^|[;&|(]\s*|\$\(\s*)git(?:\s+-C\s+\S+)?\s+(?:push\b[^\n;&|]*\s--no-verify\b|commit\b[^\n;&|]*\s(?:--no-verify|-n)(?=\s|$))/m,
+    message:
+      "Skipping git hooks is blocked: the pre-push hook is where `catalina check` gates the default branch, and commit hooks enforce issue refs. Fix what the hook reports instead (run `catalina check <N>` to see it).",
+  },
+  {
     name: "hard-reset",
     pattern: /\bgit\s+reset\s+--hard\b/,
     message:
@@ -225,7 +233,8 @@ process.stdin.on("end", () => {
       const prodDirect = prodDirectRule(input.cwd);
       for (const rule of prodDirect ? [...DENYLIST, prodDirect] : DENYLIST) {
         if (allowed.has(rule.name)) continue;
-        if (rule.pattern.test(command)) {
+        const subject = rule.unquoted ? command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''") : command;
+        if (rule.pattern.test(subject)) {
           if (rule.name === "prod-direct") {
             const said = humanAllowedProd(input.transcript_path);
             if (said) {
