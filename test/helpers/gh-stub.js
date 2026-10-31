@@ -14,6 +14,8 @@ if (args[0] === "api" && /contents\/\.catalina\/config\.json/.test(args[1])) {
   process.stdout.write(JSON.stringify({ content: "e30=" }));
 } else if (args[0] === "api") {
   const m = args[1].match(/commits\/([0-9a-f]+)\/pulls/);
+  if (m && (state.unknownCommits || []).includes(m[1])) process.stderr.write(`gh: No commit found for SHA: ${m[1]} (HTTP 422)\n`), process.exit(1);
+  if (m && state.githubDown) process.stderr.write("gh: HTTP 502\n"), process.exit(1);
   process.stdout.write(JSON.stringify(m ? state.pulls[m[1]] || [] : {}));
 } else if (args[0] === "issue" && args[1] === "list") {
   const q = (val("--search") || "").replace(/ in:title$/, "");

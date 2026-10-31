@@ -113,3 +113,12 @@ test("audit --json prints the findings for a cron to read", () => {
   assert.deepStrictEqual(out.findings.map((f) => f.sha).sort(), [money, bad.tip].sort());
   assert.ok(out.findings.every((f) => Array.isArray(f.reasons) && f.reasons.length));
 });
+
+test("audit: a commit GitHub doesn't know (never pushed there) has no PR; other GitHub errors still fail", () => {
+  const { repo, pulls, money, bad } = fixture();
+  withGh(repo, { pulls, unknownCommits: [money] });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.deepStrictEqual(r.findings.map((f) => f.sha).sort(), [money, bad.tip].sort());
+  withGh(repo, { pulls, githubDown: true });
+  assert.throws(() => audit({ cwd: repo.cwd, since: "72h", dryRun: true }), /502/);
+});
