@@ -18,6 +18,15 @@ if (args[0] === "api") {
   state.issues.push({ title: val("--title"), body: val("--body"), labels: [val("--label")] });
   save();
   process.stdout.write(`https://github.com/o/r/issues/${state.issues.length}\n`);
+} else if (args[0] === "repo" && args[1] === "view") {
+  process.stdout.write(JSON.stringify({ nameWithOwner: args[2] && !args[2].startsWith("-") ? args[2] : "o/r", url: state.remote }));
+} else if (args[0] === "pr" && args[1] === "view") {
+  const pr = (state.prs || {})[args[2]];
+  if (!pr) process.exit(1);
+  process.stdout.write(JSON.stringify(pr));
+} else if (args[0] === "pr" && args[1] === "merge") {
+  state.merged = [...(state.merged || []), args[2]];
+  save();
 } else if (args[0] === "label") {
   state.labels = [...new Set([...(state.labels || []), args[2]])];
   save();

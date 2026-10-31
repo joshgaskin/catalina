@@ -339,8 +339,12 @@ blobs, in the git common dir); every other caller reads the cache and runs only 
 - a commit with `Refs #N` (N ≥ `enforce_from`) needs issue N to pass `catalina check`;
 - any other commit is a **quick task**: it passes unless it touches a `no_undo` path.
 
-A merge done on GitHub (`gh pr merge`) runs no pre-push, so a merge bot runs `catalina gate <PR head>
---json` first: the same rule over the commits the branch adds. Other branches are never blocked. The config is read from the remote's default branch, never the
+A merge done on GitHub (`gh pr merge`) runs no pre-push. For an agent that merges its own PRs, put
+`bin/catalina-gh` ahead of the real `gh` on its PATH (a 3-line wrapper that sets `CATALINA_REAL_GH`):
+every `gh pr merge` first runs `catalina gate` on the PR head, the same rule over the commits the
+branch adds, and is refused in enforce mode (logged in shadow). `CATALINA_MERGE_ALLOW=1` merges anyway
+and is recorded; the audit still flags the commit. `catalina gate <tip> --json` gives the same verdict
+to any other tool. Other branches are never blocked. The config is read from the remote's default branch, never the
 pushed branch, and `.catalina/**` is always `no_undo`, so a branch can't loosen its own gate.
 `git push --no-verify` is refused in Claude Code sessions by the guardrail.
 
@@ -440,6 +444,7 @@ An issue that can't be definitively closed is a bad issue.
 | `/recall [N]` | Deming | Load past observations into context; after ship, write `## Lessons` |
 | `catalina check <N> [--witness]` | — | The gate's check (see The Gate) |
 | `catalina gate <tip> [--json]` | — | The push rule over a branch, before a GitHub merge |
+| `catalina-gh` | — | A `gh` for merge bots: `gh pr merge` runs `catalina gate` first |
 | `catalina audit [--dry-run] [--shadow-report]` | — | Re-check the default branch; file `catalina-unchecked` issues |
 | `catalina recall --paths a,b [--epic E]` | — | Lessons from past tracking files that touched the same code |
 | `catalina doctor [--also dir]` | — | List drifted copies of Catalina files |
