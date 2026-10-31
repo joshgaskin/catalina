@@ -63,6 +63,26 @@ test("gh-guard: CATALINA_MERGE_ALLOW=1 merges and records the bypass", () => {
   assert.match(s.gateLog("bypass.log"), /"pr":7/);
 });
 
+test("gh-guard: a repo with no .catalina/config.json is merged without cloning it", () => {
+  const s = setup("enforce", { omit: ["dod"] });
+  const st = path.join(s.repo.tmp, "gh-state.json");
+  fs.writeFileSync(st, JSON.stringify({ ...JSON.parse(fs.readFileSync(st, "utf8")), adopted: false }));
+  const r = s.run(["pr", "merge", "7", "-R", "o/r"]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(s.merged(), ["7"]);
+  assert.ok(!fs.existsSync(path.join(s.repo.tmp, "gate", "r")), "no clone");
+});
+
+test("gh-guard: GitHub failing is a refusal, never a pass", () => {
+  const s = setup("enforce");
+  const st = path.join(s.repo.tmp, "gh-state.json");
+  fs.writeFileSync(st, JSON.stringify({ ...JSON.parse(fs.readFileSync(st, "utf8")), githubDown: true }));
+  const r = s.run(["pr", "merge", "7", "-R", "o/r"]);
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /couldn't run/);
+  assert.deepStrictEqual(s.merged(), []);
+});
+
 test("gh-guard: every other gh command passes straight through", () => {
   const s = setup("enforce");
   const r = s.run(["pr", "view", "7"]);

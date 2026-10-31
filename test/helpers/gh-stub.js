@@ -8,7 +8,11 @@ const args = process.argv.slice(2);
 const val = (f) => args[args.indexOf(f) + 1];
 const save = () => fs.writeFileSync(file, JSON.stringify(state));
 
-if (args[0] === "api") {
+if (args[0] === "api" && /contents\/\.catalina\/config\.json/.test(args[1])) {
+  if (state.adopted === false) process.stderr.write("gh: Not Found (HTTP 404)\n"), process.exit(1);
+  if (state.githubDown) process.stderr.write("gh: HTTP 502\n"), process.exit(1);
+  process.stdout.write(JSON.stringify({ content: "e30=" }));
+} else if (args[0] === "api") {
   const m = args[1].match(/commits\/([0-9a-f]+)\/pulls/);
   process.stdout.write(JSON.stringify(m ? state.pulls[m[1]] || [] : {}));
 } else if (args[0] === "issue" && args[1] === "list") {
