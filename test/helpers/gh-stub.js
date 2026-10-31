@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+// A fake `gh` for tests. State lives in the JSON file named by CATALINA_GH_STATE:
+//   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [] }
+const fs = require("fs");
+const file = process.env.CATALINA_GH_STATE;
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+const args = process.argv.slice(2);
+const val = (f) => args[args.indexOf(f) + 1];
+const save = () => fs.writeFileSync(file, JSON.stringify(state));
+
+if (args[0] === "api") {
+  const m = args[1].match(/commits\/([0-9a-f]+)\/pulls/);
+  process.stdout.write(JSON.stringify(m ? state.pulls[m[1]] || [] : {}));
+} else if (args[0] === "issue" && args[1] === "list") {
+  const q = (val("--search") || "").replace(/ in:title$/, "");
+  process.stdout.write(JSON.stringify(state.issues.filter((i) => i.title.includes(q)).map((i) => ({ title: i.title }))));
+} else if (args[0] === "issue" && args[1] === "create") {
+  state.issues.push({ title: val("--title"), body: val("--body"), labels: [val("--label")] });
+  save();
+  process.stdout.write(`https://github.com/o/r/issues/${state.issues.length}\n`);
+} else if (args[0] === "label") {
+  state.labels = [...new Set([...(state.labels || []), args[2]])];
+  save();
+} else {
+  process.stderr.write(`gh-stub: unsupported ${args.join(" ")}\n`);
+  process.exit(1);
+}
