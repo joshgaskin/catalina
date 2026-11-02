@@ -178,3 +178,48 @@ test("AC9: the same failure at a new sha escalates; a re-run at the same sha doe
   repo.commit("retry 2 (Refs #140)");
   assert.strictEqual(w().exit, 1);
 });
+
+// AC3b — a record for a fix already on main names its red base, guarded to the fix's parent
+function recordAfterFix(repo, n, redBase) {
+  repo.write("src/add.js", require("./helpers/repo").FIXED);
+  repo.commit(`fix add (#${n})`);
+  repo.git("push", "-q", "origin", "main");
+  repo.git("checkout", "-q", "-b", `issue-${n}-record`, "origin/main");
+  repo.write("test/add.test.js", TEST);
+  const pin = repo.commit(`pin add (Refs #${n})`);
+  const text = tracking(n) + (redBase ? `\nRed base: ${redBase}\n` : "");
+  repo.write(`.claude/tracking/issue-${n}/tracking.md`, text);
+  repo.write(`.claude/tracking/issue-${n}/verification.jsonl`, verification(pin));
+  return repo.commit(`evidence (Refs #${n})`);
+}
+
+test("AC3b: a record for a fix already on main can't prove red against the merge-base", () => {
+  const repo = makeRepo();
+  const tip = recordAfterFix(repo, 150);
+  assert.ok(has(run(repo, 150, { sha: tip }), /already passes on main/));
+});
+
+test("AC3b: a Red base line naming the fix's parent proves red, also with the merge-base passed in (audit)", () => {
+  const repo = makeRepo();
+  const init = repo.git("rev-parse", "origin/main");
+  const tip = recordAfterFix(repo, 151, init.slice(0, 9));
+  assert.deepStrictEqual(run(repo, 151, { sha: tip }).reasons, []);
+  const mb = repo.git("merge-base", tip, "origin/main");
+  const r = run(repo, 151, { sha: tip, base: mb, red: "miss" });
+  assert.deepStrictEqual(r.reasons, []);
+});
+
+test("AC3b: a Red base line pointing anywhere but the fix's parent fails", () => {
+  const repo = makeRepo();
+  const init = repo.git("rev-parse", "origin/main");
+  repo.write("README.md", "more\n");
+  repo.commit("unrelated");
+  repo.git("push", "-q", "origin", "main");
+  // the fix's parent is now the unrelated commit, not init
+  const tip = recordAfterFix(repo, 152, init);
+  const r = run(repo, 152, { sha: tip });
+  assert.ok(has(r, /Red base .* is not the parent of the first commit referencing #152/), JSON.stringify(r.reasons));
+  const other = makeRepo();
+  const junk = recordAfterFix(other, 153, "deadbeef");
+  assert.ok(has(run(other, 153, { sha: junk }), /Red base deadbeef/), "an unknown sha fails too");
+});
