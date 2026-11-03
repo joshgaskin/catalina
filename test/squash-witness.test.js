@@ -130,4 +130,22 @@ test("#2214 AC5: a witnessed sha whose change is nowhere in the history still fa
   const tip = repo.commit("evidence (Refs #304)");
   const r = check(304, { cwd: repo.cwd, sha: tip, source: "commit", red: "run" });
   assert.ok(has(r, new RegExp(`witnessed sha ${elsewhere.slice(0, 7)} is not in the history of ${tip.slice(0, 7)}`)), JSON.stringify(r.reasons));
+  assert.ok(has(r, /the closest commit, [0-9a-f]{7}, has a different change in src\/add\.js/), JSON.stringify(r.reasons));
+});
+
+test("#2214 P1: unwitnessed code before the commit that matches the witness still fails", () => {
+  const repo = makeRepo();
+  repo.git("checkout", "-q", "-b", "issue-305", "origin/main");
+  repo.write("src/add.js", FIXED);
+  repo.write("test/add.test.js", TEST);
+  const witnessed = repo.commit("fix add (Refs #305)");
+  repo.git("checkout", "-q", "-b", "issue-305-pr", "origin/main");
+  repo.write("src/extra.js", "module.exports = 1;\n");
+  repo.commit("unwitnessed first (Refs #305)");
+  repo.git("cherry-pick", witnessed);
+  repo.write(".claude/tracking/issue-305/tracking.md", tracking(305));
+  repo.write(".claude/tracking/issue-305/verification.jsonl", verification(witnessed));
+  const tip = repo.commit("evidence (Refs #305)");
+  const r = check(305, { cwd: repo.cwd, sha: tip, source: "commit", red: "run" });
+  assert.ok(has(r, /commits after the witnessed sha change code \(src\/extra\.js\)/), JSON.stringify(r.reasons));
 });
