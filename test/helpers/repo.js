@@ -8,6 +8,9 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..", "..");
+// A box-wide CATALINA_RED_CACHE (the plus2 VPS sets one) would be shared by every fixture repo, and fixtures built in
+// the same second have the same shas: one test's red proof would answer another's. Each fixture keeps its own cache.
+delete process.env.CATALINA_RED_CACHE;
 
 function sh(cmd, args, cwd, env = {}) {
   return execFileSync(cmd, args, {
