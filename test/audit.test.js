@@ -122,3 +122,21 @@ test("audit: a commit GitHub doesn't know (never pushed there) has no PR; other 
   withGh(repo, { pulls, githubDown: true });
   assert.throws(() => audit({ cwd: repo.cwd, since: "72h", dryRun: true }), /502/);
 });
+
+test("audit: a repair PR that closes a catalina-unchecked issue doesn't get that audit issue checked as work (#13)", () => {
+  const { repo, pulls, money, bad } = fixture();
+  const [squash] = Object.keys(pulls);
+  // issue #150 is an earlier audit finding; the re-witness PR closes it and Refs the real issue
+  const issues = Array.from({ length: 150 }, (_, k) => ({ title: `old ${k + 1}`, body: "", labels: [] }));
+  issues[149] = { title: "catalina-unchecked: abc1234", body: "", labels: ["catalina-unchecked"] };
+  pulls[squash][0].body = "Closes #150\nRefs #202";
+  withGh(repo, { pulls, issues });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.deepStrictEqual(r.findings.map((f) => f.sha).sort(), [money, bad.tip].sort(), JSON.stringify(r.findings, null, 1));
+  // a direct push that names an audit issue isn't checked as that issue either
+  repo.write("src/z.js", "1\n");
+  repo.commit("re-witness (Closes #150)");
+  pushMain(repo);
+  const r2 = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.ok(!r2.findings.some((f) => /#150/.test(f.what)), JSON.stringify(r2.findings, null, 1));
+});

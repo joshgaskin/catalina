@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A fake `gh` for tests. State lives in the JSON file named by CATALINA_GH_STATE:
-//   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [] }
+//   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [] } (issue number = index + 1)
 const fs = require("fs");
 const file = process.env.CATALINA_GH_STATE;
 const state = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -19,7 +19,9 @@ if (args[0] === "api" && /contents\/\.catalina\/config\.json/.test(args[1])) {
   process.stdout.write(JSON.stringify(m ? state.pulls[m[1]] || [] : {}));
 } else if (args[0] === "issue" && args[1] === "list") {
   const q = (val("--search") || "").replace(/ in:title$/, "");
-  process.stdout.write(JSON.stringify(state.issues.filter((i) => i.title.includes(q)).map((i) => ({ title: i.title }))));
+  const label = args.includes("--label") ? val("--label") : null;
+  const list = state.issues.map((i, k) => ({ number: k + 1, ...i })).filter((i) => i.title.includes(q) && (!label || (i.labels || []).includes(label)));
+  process.stdout.write(JSON.stringify(list.map((i) => ({ number: i.number, title: i.title }))));
 } else if (args[0] === "issue" && args[1] === "create") {
   state.issues.push({ title: val("--title"), body: val("--body"), labels: [val("--label")] });
   save();
