@@ -140,3 +140,20 @@ test("audit: a repair PR that closes a catalina-unchecked issue doesn't get that
   const r2 = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
   assert.ok(!r2.findings.some((f) => /#150/.test(f.what)), JSON.stringify(r2.findings, null, 1));
 });
+
+test("audit: a PR body's \"#N (Refs #M)\" says what #N did, so #M isn't checked as this PR's work (plus2 #2423)", () => {
+  const { repo, pulls, money, bad } = fixture();
+  const [squash] = Object.keys(pulls);
+  // issue #204 is only explained in the body's prose; checking it would flag the squash
+  pulls[squash][0].body = "Main was red because #2413 (Refs #204) added crons.\n\nRefs #202";
+  withGh(repo, { pulls });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.deepStrictEqual(r.findings.map((f) => f.sha).sort(), [money, bad.tip].sort(), JSON.stringify(r.findings, null, 1));
+  // the PR's own Refs, on a line or ending a sentence, still names the issue
+  for (const body of ["Refs #204", "Test fixture only. Refs #204.", "This closes #204 too (Refs #204)."]) {
+    pulls[squash][0].body = body;
+    withGh(repo, { pulls });
+    const r2 = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+    assert.ok(r2.findings.some((f) => /issue #204/.test(f.what)), body + JSON.stringify(r2.findings, null, 1));
+  }
+});
