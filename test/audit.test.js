@@ -140,3 +140,28 @@ test("audit: a repair PR that closes a catalina-unchecked issue doesn't get that
   const r2 = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
   assert.ok(!r2.findings.some((f) => /#150/.test(f.what)), JSON.stringify(r2.findings, null, 1));
 });
+
+test("audit: a PR body's prose mention of another PR's issue isn't checked as this PR's work (#17)", () => {
+  const { repo, pulls, money, bad } = fixture();
+  const [squash] = Object.keys(pulls);
+  // #203 fails the check; the body only mentions it in passing, about some other PR
+  pulls[squash][0].body = "Main was red because #9 (Refs #203) left a step out, and `Fixes #203` was its title.\n\nRefs #202";
+  withGh(repo, { pulls });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.ok(!r.findings.some((f) => /PR #7, issue #203/.test(f.what)), JSON.stringify(r.findings, null, 1));
+  assert.deepStrictEqual(r.findings.map((f) => f.sha).sort(), [money, bad.tip].sort(), JSON.stringify(r.findings, null, 1));
+  // a body line that starts with the keyword still names the PR's issue
+  pulls[squash][0].body = "Some prose.\n\nCloses #203";
+  withGh(repo, { pulls });
+  const r2 = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.ok(r2.findings.some((f) => /PR #7, issue #203/.test(f.what)), JSON.stringify(r2.findings, null, 1));
+});
+
+test("audit: a PR body's ref at the end of a prose line still names the PR's issue (#17)", () => {
+  const { repo, pulls } = fixture();
+  const [squash] = Object.keys(pulls);
+  pulls[squash][0].body = "Cap raised; the suite tests pass (177). Refs #203.";
+  withGh(repo, { pulls });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.ok(r.findings.some((f) => /PR #7, issue #203/.test(f.what)), JSON.stringify(r.findings, null, 1));
+});
