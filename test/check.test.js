@@ -115,6 +115,37 @@ test("AC3: a test that fails only because its module is missing at merge-base fa
   assert.ok(has(run(repo, 121, { sha: tip }), /failed to load, not an assertion/));
 });
 
+// A repo's first code (#14): the merge-base holds no code, so a load failure there is red.
+function firstCode(repo, n, testText) {
+  repo.git("checkout", "-q", "-b", `issue-${n}`, "origin/main");
+  repo.write("src/mul.js", "module.exports = (a, b) => a * b;\n");
+  repo.write("test/mul.test.js", testText);
+  const fix = repo.commit(`mul (Refs #${n})`);
+  repo.write(`.claude/tracking/issue-${n}/tracking.md`, tracking(n));
+  repo.write(`.claude/tracking/issue-${n}/verification.jsonl`, verification(fix));
+  return repo.commit(`evidence (Refs #${n})`);
+}
+const MUL_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\nconst mul = require('../src/mul');\ntest('mul', () => assert.strictEqual(mul(2, 3), 6));\n";
+
+test("AC3 (#14): in a repo with no code yet, a test that fails to load at merge-base and passes at the commit is red-green", () => {
+  const repo = makeRepo({ noCode: true });
+  const tip = firstCode(repo, 123, MUL_TEST);
+  const r = run(repo, 123, { sha: tip });
+  assert.deepStrictEqual(r.reasons, []);
+});
+
+test("AC3 (#14): in a repo with no code yet, the tests must still pass at the commit", () => {
+  const repo = makeRepo({ noCode: true });
+  const tip = firstCode(repo, 124, MUL_TEST.replace("6)", "7)"));
+  assert.ok(has(run(repo, 124, { sha: tip }), /the tests fail at/));
+});
+
+test("AC3 (#14): in a repo with no code yet, a test that already passes at merge-base still proves nothing", () => {
+  const repo = makeRepo({ noCode: true });
+  const tip = firstCode(repo, 125, "const test = require('node:test');\nconst assert = require('node:assert');\ntest('t', () => assert.ok(true));\n");
+  assert.ok(has(run(repo, 125, { sha: tip }), /already passes on main, proves nothing/));
+});
+
 test("AC3: code changed with no test change fails", () => {
   const repo = makeRepo();
   const { tip } = buildIssue(repo, 122, { test: false });

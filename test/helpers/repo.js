@@ -63,7 +63,7 @@ function makeRepo(opts = {}) {
     },
   };
   repo.write(".catalina/config.json", JSON.stringify(repo.config(opts.config)));
-  repo.write("src/add.js", opts.baseFixed ? FIXED : BUGGY);
+  if (!opts.noCode) repo.write("src/add.js", opts.baseFixed ? FIXED : BUGGY);
   repo.write("README.md", "fixture\n");
   repo.commit("init");
   repo.git("push", "-q", "-u", "origin", "main");
