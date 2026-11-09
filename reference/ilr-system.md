@@ -336,6 +336,11 @@ the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the p
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
 blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
 
+A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
+commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
+differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs). A code or test file resolved by
+hand to something other than the witnessed version is unwitnessed code, and the check names it.
+
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
 - a commit with `Refs #N` (N ≥ `enforce_from`) needs issue N to pass `catalina check`;
