@@ -328,15 +328,18 @@ builders and other agents alike.
 **`catalina check <N>`** passes only when issue N's committed tracking files show: a Definition of
 Done; AC; a Premortem with IDs (or `Trivial: <reason>`); `## Lessons applied`; a verification line
 per AC and per premortem ID with real artifacts; every AC line naming the witnessed sha, with only
-tracking files changed after it (a witnessed sha that left the history by a rebase or squash counts where a commit carries
-its change: the same patch, or the witnessed commit merged onto that commit's parent with differences only in files that
-are neither code nor tests, e.g. RELEASE_NOTES.md; a hand-resolved code or test file is unwitnessed code); and a **red-then-green proof run for real** — the issue's new or
+tracking files changed after it; and a **red-then-green proof run for real** — the issue's new or
 changed tests copied onto a temp checkout of the merge-base must fail there on an assertion (a
 missing module isn't red) and pass at the commit. A diff that changes no code may record a
 `red_green` exemption instead. A record written after its fix already merged (so the merge-base has
 the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the parent of the first
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
 blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
+
+A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
+commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
+differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs). A code or test file resolved by
+hand to something other than the witnessed version is unwitnessed code, and the check names it.
 
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
