@@ -9,6 +9,8 @@
  *
  * Blocks destructive Bash commands with exit code 2.
  * Suggests safer alternatives in the stderr message.
+ * A rule marked `ask` prompts the user instead of blocking; any blocking
+ * rule that also matches the command still wins.
  *
  * Escape hatch: CATALINA_GUARDRAIL_ALLOW=rm-rf,docker-down
  */
@@ -18,9 +20,10 @@ const os = require("os");
 const DENYLIST = [
   {
     name: "rm-rf",
-    pattern: /\brm\s+(?:-[a-zA-Z]*r[a-zA-Z]*\s+(?:-[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*)|-[a-zA-Z]*f[a-zA-Z]*\s+(?:-[a-zA-Z]*r|-[a-zA-Z]*r[a-zA-Z]*)|-rf\b|-fr\b)/,
+    pattern: /(?<!\bgit\s)\brm\s+(?:-[a-zA-Z]*\s+)*(?:-[a-zA-Z]*[rR]|--recursive\b)/,
     message:
-      "Recursive force delete blocked. Remove specific files by name instead.",
+      "Recursive delete. Check the path before you approve it.",
+    ask: true,
   },
   {
     name: "docker-down",
@@ -231,6 +234,7 @@ process.stdin.on("end", () => {
       if (allowed.has("wpe-prod-direct")) allowed.add("prod-direct"); // old name of the rule, before hosts moved to config
 
       const prodDirect = prodDirectRule(input.cwd);
+      let ask = null;
       for (const rule of prodDirect ? [...DENYLIST, prodDirect] : DENYLIST) {
         if (allowed.has(rule.name)) continue;
         const subject = rule.unquoted ? command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''") : command;
@@ -242,6 +246,10 @@ process.stdin.on("end", () => {
               continue;
             }
           }
+          if (rule.ask) {
+            ask = ask || rule;
+            continue;
+          }
           process.stderr.write(
             `\n[Guardrail] BLOCKED: ${rule.message}\n` +
               `  Command: ${command.substring(0, 120)}${command.length > 120 ? "..." : ""}\n` +
@@ -250,6 +258,18 @@ process.stdin.on("end", () => {
           process.stdout.write(data);
           process.exit(2);
         }
+      }
+      if (ask) {
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "ask",
+              permissionDecisionReason: `[Guardrail] ${ask.message} To skip the prompt: set CATALINA_GUARDRAIL_ALLOW=${ask.name}`,
+            },
+          })
+        );
+        process.exit(0);
       }
     }
   } catch {
