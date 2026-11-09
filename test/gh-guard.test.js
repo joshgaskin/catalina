@@ -4,7 +4,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { makeRepo, buildIssue, ROOT } = require("./helpers/repo");
+const { makeRepo, buildIssue, gateRuns, ROOT } = require("./helpers/repo");
 
 const STUB = path.join(__dirname, "helpers", "gh-stub.js");
 
@@ -50,8 +50,9 @@ test("gh-guard: shadow merges anyway and logs the would-refuse", () => {
   assert.strictEqual(r.status, 0, r.stderr);
   assert.deepStrictEqual(s.merged(), ["7"]);
   assert.match(r.stderr, /shadow mode: this merge would be refused/);
-  const line = JSON.parse(s.gateLog("shadow.log").trim().split("\n").pop());
+  const line = gateRuns(s.repo).pop();
   assert.strictEqual(line.kind, "merge");
+  assert.strictEqual(line.ok, false);
   assert.strictEqual(line.sha, s.tip);
 });
 

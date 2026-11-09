@@ -29,6 +29,8 @@ function makeRepo(opts = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "catalina-test-"));
   const bare = path.join(tmp, "remote.git");
   const cwd = path.join(tmp, "work");
+  // The gate log is box-wide (lib/gatelog.js); each fixture gets its own, so tests never read each other's runs.
+  process.env.CATALINA_STATE_DIR = path.join(tmp, "state");
   sh("git", ["init", "-q", "--bare", "-b", "main", bare], tmp);
   sh("git", ["clone", "-q", bare, cwd], tmp);
   const repo = {
@@ -69,6 +71,12 @@ function makeRepo(opts = {}) {
   repo.git("push", "-q", "-u", "origin", "main");
   sh("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], cwd);
   return repo;
+}
+
+/** The fixture's gate log (config repo o/r), parsed: [] when nothing has run the gate. */
+function gateRuns(repo) {
+  const p = path.join(repo.tmp, "state", "o__r", "gate.log");
+  return fs.existsSync(p) ? fs.readFileSync(p, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
 }
 
 function tracking(n, o = {}) {
@@ -113,4 +121,4 @@ function buildIssue(repo, n, o = {}) {
   return { base, fix, tip };
 }
 
-module.exports = { ROOT, sh, makeRepo, tracking, verification, buildIssue, BUGGY, FIXED, TEST };
+module.exports = { ROOT, sh, makeRepo, gateRuns, tracking, verification, buildIssue, BUGGY, FIXED, TEST };
