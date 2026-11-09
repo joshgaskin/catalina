@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { makeRepo, buildIssue, sh, ROOT } = require("./helpers/repo");
+const { makeRepo, buildIssue, sh, gateRuns, ROOT } = require("./helpers/repo");
 
 /** Wire the real hooks/pre-push into a fixture repo, pointing at this checkout. */
 function hooked(opts) {
@@ -20,10 +20,7 @@ function hooked(opts) {
   return repo;
 }
 
-const shadowLog = (repo) => {
-  const p = path.join(repo.cwd, ".git", "catalina", "shadow.log");
-  return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
-};
+const shadowLog = (repo) => gateRuns(repo).filter((r) => !r.ok).map((r) => JSON.stringify(r)).join("\n");
 
 test("AC5: a failing enforced issue is refused with its reasons", () => {
   const repo = hooked();
@@ -79,7 +76,7 @@ test("AC5: a branch can't put its own gate into shadow", () => {
   assert.match(r.out, /\.catalina\/config\.json/);
 });
 
-test("AC5: shadow mode allows everything and logs to the shared git-common-dir log", () => {
+test("AC5: shadow mode allows everything and logs to the box-wide gate log", () => {
   const repo = hooked({ config: { mode: "shadow" } });
   buildIssue(repo, 104, { omit: ["dod"] });
   const r = repo.push("HEAD:main");

@@ -88,15 +88,17 @@ test("AC7: eight unchecked commits file five plus one summary", () => {
   assert.match(gh.read().issues.find((i) => /summary/.test(i.title)).body, /3 more/);
 });
 
-test("AC8: --shadow-report groups the shared shadow log by day", () => {
+test("AC8: --shadow-report groups the would-blocks in the shared gate log by day, and counts the runs", () => {
   const repo = makeRepo();
   withGh(repo);
-  const log = path.join(repo.cwd, ".git", "catalina", "shadow.log");
+  const log = path.join(repo.tmp, "state", "o__r", "gate.log");
   fs.mkdirSync(path.dirname(log), { recursive: true });
   const now = Date.now();
-  const line = (ms, r) => JSON.stringify({ at: new Date(ms).toISOString(), host: "h", sha: "abc1234", reasons: [r] });
-  fs.writeFileSync(log, [line(now - 3600e3, "#300: x"), line(now - 3600e3, "#301: y"), line(now - 30 * 3600e3, "#302: z"), line(now - 10 * 86400e3, "too old")].join("\n") + "\n");
+  const line = (ms, ok, r) => JSON.stringify({ at: new Date(ms).toISOString(), host: "h", kind: "merge", sha: "abc1234", ok, reasons: r ? [r] : [] });
+  fs.writeFileSync(log, [line(now - 3600e3, false, "#300: x"), line(now - 3600e3, false, "#301: y"), line(now - 2 * 3600e3, true), line(now - 30 * 3600e3, false, "#302: z"), line(now - 10 * 86400e3, false, "too old")].join("\n") + "\n");
   const r = audit({ cwd: repo.cwd, since: "72h", shadowReport: true });
+  assert.strictEqual(r.runs, 4);
+  assert.strictEqual(r.wouldBlock, 3);
   assert.strictEqual(r.days.length, 2);
   assert.deepStrictEqual(r.days.map((d) => d.count).sort(), [1, 2]);
   assert.ok(!JSON.stringify(r.days).includes("too old"));

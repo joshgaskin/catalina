@@ -35,7 +35,7 @@ Everything is linked to the checkout, not copied. A project's own rules for a co
 `.claude/catalina/<command>.local.md`; the command pulls them in at its `<!-- overlay -->` marker.
 
 Then adopt the gate: commit `.catalina/config.json` to your default branch in `"mode": "shadow"`,
-watch `catalina audit --shadow-report` for a few days, and switch to `"enforce"`. Run
+watch `catalina audit --shadow-report` for a few days (it fails if no gate run was ever logged), and switch to `"enforce"`. Run
 `catalina audit` hourly from a cron. Details: `reference/ilr-system.md`, "The Gate".
 
 ## Update

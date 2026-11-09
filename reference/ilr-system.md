@@ -344,7 +344,7 @@ blobs, in the git common dir); every other caller reads the cache and runs only 
 A merge done on GitHub (`gh pr merge`) runs no pre-push. For an agent that merges its own PRs, put
 `bin/catalina-gh` ahead of the real `gh` on its PATH (a 3-line wrapper that sets `CATALINA_REAL_GH`):
 every `gh pr merge` first runs `catalina gate` on the PR head, the same rule over the commits the
-branch adds, and is refused in enforce mode (logged in shadow). `CATALINA_MERGE_ALLOW=1` merges anyway
+branch adds, and is refused in enforce mode (logged either way). `CATALINA_MERGE_ALLOW=1` merges anyway
 and is recorded; the audit still flags the commit. `catalina gate <tip> --json` gives the same verdict
 to any other tool. Other branches are never blocked. The config is read from the remote's default branch, never the
 pushed branch, and `.catalina/**` is always `no_undo`, so a branch can't loosen its own gate.
@@ -380,10 +380,12 @@ hourly from a cron, and in `/groom`.
 - `red_parser`: `vitest` / `jest` (JSON report at `{report}`), `node-test`, or `exit-code`
   (can't tell a load error from an assertion — use a real parser when one exists).
 
-**Shadow first.** A new project starts at `"mode": "shadow"`: nothing is blocked, and every
-would-block is logged to `$(git rev-parse --git-common-dir)/catalina/shadow.log`, shared by all
-worktrees. `catalina audit --shadow-report` prints it by day. Switch to `"enforce"` once a few days
-show only real problems.
+**Shadow first.** A new project starts at `"mode": "shadow"`: nothing is blocked. Every gate run (a push to
+the default branch, a `gh pr merge` through `catalina-gh`), passing or would-block, is appended to one box-wide log,
+`${CATALINA_STATE_DIR:-~/.catalina-state}/<owner>__<name>/gate.log`, whichever clone or worktree ran it.
+`catalina audit --shadow-report` prints the runs, the would-blocks by day, and the commits that landed. It exits 1
+when the log doesn't exist, or when commits landed in the window and no gate run was logged: the gate isn't running
+where the merges happen. Switch to `"enforce"` once a few days show only real problems.
 
 **Drift.** `install.sh` links hooks and commands to the Catalina checkout, so `git -C ~/.catalina
 pull` updates every project. A project's own rules go in `.claude/catalina/<command>.local.md`,
