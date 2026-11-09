@@ -102,17 +102,47 @@ test("AC3: a test that already passes at merge-base proves nothing", () => {
   assert.ok(has(run(repo, 120, { sha: tip }), /already passes on main, proves nothing/));
 });
 
-test("AC3: a test that fails only because its module is missing at merge-base fails", () => {
-  const repo = makeRepo();
-  const testText = "const test = require('node:test');\nconst assert = require('node:assert');\nconst mul = require('../src/mul');\ntest('mul', () => assert.strictEqual(mul(2, 3), 6));\n";
-  repo.git("checkout", "-q", "-b", "issue-121", "origin/main");
+// A load failure at merge-base is red when the module it can't find is one the change adds (#19): the test can't
+// pass without the change. Any other load error is not.
+function mulIssue(repo, n, testText) {
+  repo.git("checkout", "-q", "-b", `issue-${n}`, "origin/main");
   repo.write("src/mul.js", "module.exports = (a, b) => a * b;\n");
   repo.write("test/mul.test.js", testText);
-  const fix = repo.commit("mul (Refs #121)");
-  repo.write(".claude/tracking/issue-121/tracking.md", tracking(121));
-  repo.write(".claude/tracking/issue-121/verification.jsonl", verification(fix));
-  const tip = repo.commit("evidence (Refs #121)");
-  assert.ok(has(run(repo, 121, { sha: tip }), /failed to load, not an assertion/));
+  const fix = repo.commit(`mul (Refs #${n})`);
+  repo.write(`.claude/tracking/issue-${n}/tracking.md`, tracking(n));
+  repo.write(`.claude/tracking/issue-${n}/verification.jsonl`, verification(fix));
+  return repo.commit(`evidence (Refs #${n})`);
+}
+
+test("AC3 (#19): a test that fails to load at merge-base only because it imports a module the change adds is red", () => {
+  const repo = makeRepo();
+  const tip = mulIssue(repo, 121, "const test = require('node:test');\nconst assert = require('node:assert');\nconst mul = require('../src/mul');\ntest('mul', () => assert.strictEqual(mul(2, 3), 6));\n");
+  const r = run(repo, 121, { sha: tip });
+  assert.deepStrictEqual(r.reasons, []);
+  assert.match(r.red.via, /src\/mul\.js/);
+});
+
+test("AC3 (#19): ...and it must still pass at the commit", () => {
+  const repo = makeRepo();
+  const tip = mulIssue(repo, 126, "const test = require('node:test');\nconst assert = require('node:assert');\nconst mul = require('../src/mul');\ntest('mul', () => assert.strictEqual(mul(2, 3), 7));\n");
+  assert.ok(has(run(repo, 126, { sha: tip }), /the tests fail at/));
+});
+
+test("AC3 (#19): a load error that isn't a module the change adds is not red (control)", () => {
+  const repo = makeRepo();
+  // Fails to load at main because ./boom throws on require; the change fixes boom. No module is added.
+  repo.write("src/boom.js", "throw new Error('boom at load');\n");
+  repo.commit("boom");
+  repo.git("push", "-q", "origin", "HEAD:main");
+  repo.git("checkout", "-q", "-b", "issue-127", "origin/main");
+  repo.write("src/boom.js", "module.exports = 1;\n");
+  repo.write("test/boom.test.js", "const test = require('node:test');\nconst assert = require('node:assert');\nconst b = require('../src/boom');\ntest('b', () => assert.strictEqual(b, 1));\n");
+  const fix = repo.commit("boom fix (Refs #127)");
+  repo.write(".claude/tracking/issue-127/tracking.md", tracking(127));
+  repo.write(".claude/tracking/issue-127/verification.jsonl", verification(fix));
+  const tip = repo.commit("evidence (Refs #127)");
+  const r = run(repo, 127, { sha: tip });
+  assert.ok(has(r, /failed to load, not an assertion, on main, and not because of a module this change adds \(.*boom at load/), JSON.stringify(r.reasons));
 });
 
 // A repo's first code (#14): the merge-base holds no code, so a load failure there is red.
