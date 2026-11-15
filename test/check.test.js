@@ -284,3 +284,59 @@ test("AC3b: a Red base line pointing anywhere but the fix's parent fails", () =>
   const junk = recordAfterFix(other, 153, "deadbeef");
   assert.ok(has(run(other, 153, { sha: junk }), /Red base deadbeef/), "an unknown sha fails too");
 });
+
+// #27 — the premortem parser reads any separator after the bold title, and names the format when it can't read a P-line
+test("#27 AC8: any separator after the bold title reads as a premortem ID", () => {
+  const t = require("../lib/tracking");
+  for (const line of [
+    "- **P1 Scenario**: early sign: x; mitigation: y",
+    "- **P1 Scenario** early sign: x; mitigation: y",
+    "- **P1** Scenario — early sign: x",
+    "- **P1: Scenario.** early sign: x",
+    "- **P1 the *.test.* glob misses** — early sign: x",
+    "- **P1 Scenario** — early sign: x",
+    "- **P1 Scenario** -- early sign: x",
+    "- **P1 Scenario** - early sign: x",
+  ]) {
+    const pm = t.premortem(`## Premortem\n${line}\n- **P2 Other**: y\n`);
+    assert.deepStrictEqual(pm.ids, ["P1", "P2"], line);
+    assert.deepStrictEqual(pm.unread, [], line);
+  }
+});
+
+test("#27 AC8: a colon-separated premortem still needs its verification line, and passes with it", () => {
+  const colon = (text) => text.replace("** — early sign", "**: early sign");
+  for (const [n, o, want] of [[190, {}, []], [191, { omit: ["pmline"] }, null]]) {
+    const repo = makeRepo();
+    repo.git("checkout", "-q", "-b", `issue-${n}`, "origin/main");
+    repo.write("src/add.js", require("./helpers/repo").FIXED);
+    repo.write("test/add.test.js", TEST);
+    const fix = repo.commit(`fix (Refs #${n})`);
+    repo.write(`.claude/tracking/issue-${n}/tracking.md`, colon(tracking(n)));
+    repo.write(`.claude/tracking/issue-${n}/verification.jsonl`, verification(fix, o));
+    const tip = repo.commit(`evidence (Refs #${n})`);
+    const r = run(repo, n, { sha: tip });
+    if (want) assert.deepStrictEqual(r.reasons, want);
+    else assert.ok(has(r, /premortem P1 has no verification/), r.reasons.join(" | "));
+  }
+});
+
+test("#27 AC9: a P-line the parser can't read fails with the expected format", () => {
+  const t = require("../lib/tracking");
+  const pm = t.premortem("## Premortem\n- **P1 Fine** — x\n- P2 Callers broke — early sign: x\n- **P3 Unclosed — early sign: y\n  - P4 a sub-bullet is prose\n");
+  assert.deepStrictEqual(pm.ids, ["P1"]);
+  assert.deepStrictEqual(pm.unread, ["- P2 Callers broke — early sign: x", "- **P3 Unclosed — early sign: y"]);
+
+  const repo = makeRepo();
+  repo.git("checkout", "-q", "-b", "issue-192", "origin/main");
+  repo.write("src/add.js", require("./helpers/repo").FIXED);
+  repo.write("test/add.test.js", TEST);
+  const fix = repo.commit("fix (Refs #192)");
+  repo.write(".claude/tracking/issue-192/tracking.md", tracking(192).replace(/(## Premortem\n.*\n)/, "$1- P2 Callers broke — early sign: x\n"));
+  repo.write(".claude/tracking/issue-192/verification.jsonl", verification(fix));
+  const tip = repo.commit("evidence (Refs #192)");
+  const r = run(repo, 192, { sha: tip });
+  assert.ok(has(r, /premortem line "- P2 Callers broke.*isn't read as an item.*- \*\*P2 Scenario\*\* — early sign: …; mitigation: …/), r.reasons.join(" | "));
+
+  assert.deepStrictEqual(t.premortem("## Premortem\nTrivial: one line\n- P2 noted\n").unread, [], "Trivial reports none");
+});
