@@ -335,11 +335,22 @@ fail to load only because they import a module the change itself adds (any other
 the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the parent of the first
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
 blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
+A premortem item's bold opens with its ID (`- **P1 …**`, wrapping onto the next line is fine); any separator may follow
+it. A top-level `- P1 …` line the check can't read as an item (no bold, an unclosed bold) fails, naming the format.
 
 A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
 commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
 differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs). A code or test file resolved by
 hand to something other than the witnessed version is unwitnessed code, and the check names it.
+
+**`hooks/witness-gate.js`** (Claude Code, PreToolUse on Bash) runs the same check, red proof from the cache only, on
+every `gh issue edit … --add-label review`, against the repo gh edits, not the session's cwd: a leading `cd <dir>`
+(in order, relative to the cwd), else `-R/--repo owner/name` or an issue URL, which it maps to a local checkout (the
+cwd's repo when a remote matches, else `<parent of its main checkout>/<name>`). `git -C` doesn't count, since gh
+doesn't read it; the gate notes it when it names another repo. A named repo with no local checkout is let through
+with a stderr line saying it wasn't checked. Several numbers in one edit are each gated. `CATALINA_WITNESS_ALLOW=1`
+bypasses it in the hook's env or written on the command (`CATALINA_WITNESS_ALLOW=1 gh …`, `env …`, an earlier
+`export`), always with a BYPASSED notice.
 
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
@@ -384,6 +395,10 @@ hourly from a cron, and in `/groom`.
   tracking). Quick tasks never touch them; they always need an issue.
 - `red_parser`: `vitest` / `jest` (JSON report at `{report}`), `node-test`, or `exit-code`
   (can't tell a load error from an assertion — use a real parser when one exists).
+- `red_setup`: runs in each temp checkout with `$CATALINA_ROOT` set to the project's top level. A worktree's
+  `node_modules` is often a relative link, which `cp -al` copies as is and which points nowhere from the temp
+  dir: when the checkout's `node_modules` is a link that doesn't resolve and the root's does, the check relinks it
+  to the root's real path.
 
 **Shadow first.** A new project starts at `"mode": "shadow"`: nothing is blocked. Every gate run (a push to
 the default branch, a `gh pr merge` through `catalina-gh`), passing or would-block, is appended to one box-wide log,

@@ -75,3 +75,9 @@ test("#27 AC5: several numbers are all gated; flag values aren't numbers", () =>
   assert.deepStrictEqual(one("gh issue edit 170 171 --add-label review --milestone 3").numbers, ["170", "171"]);
   assert.deepStrictEqual(one("gh issue edit --add-label review").numbers, []);
 });
+
+test("#27 AC5: a bash -c script is read as a child shell of where it runs", () => {
+  const f = one(`cd /a && CATALINA_WITNESS_ALLOW=1 bash -lc "cd b && gh issue edit 9 --add-label review"`);
+  assert.deepStrictEqual([f.cds, f.allow, f.numbers], [["/a", "b"], true, ["9"]]);
+  assert.strictEqual(one(`sh -c 'gh issue edit 9 --add-label review'`).allow, false);
+});

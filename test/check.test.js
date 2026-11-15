@@ -297,6 +297,7 @@ test("#27 AC8: any separator after the bold title reads as a premortem ID", () =
     "- **P1 Scenario** — early sign: x",
     "- **P1 Scenario** -- early sign: x",
     "- **P1 Scenario** - early sign: x",
+    "- **P1 A long scenario that\n  wraps onto a second line** — early sign: x",
   ]) {
     const pm = t.premortem(`## Premortem\n${line}\n- **P2 Other**: y\n`);
     assert.deepStrictEqual(pm.ids, ["P1", "P2"], line);
@@ -326,6 +327,8 @@ test("#27 AC9: a P-line the parser can't read fails with the expected format", (
   const pm = t.premortem("## Premortem\n- **P1 Fine** — x\n- P2 Callers broke — early sign: x\n- **P3 Unclosed — early sign: y\n  - P4 a sub-bullet is prose\n");
   assert.deepStrictEqual(pm.ids, ["P1"]);
   assert.deepStrictEqual(pm.unread, ["- P2 Callers broke — early sign: x", "- **P3 Unclosed — early sign: y"]);
+  const swallow = t.premortem("## Premortem\n- **P1 Unclosed — x\n- **P2 Fine** — y\n\n- **P3 Also unclosed\n\nsee **P4** below\n");
+  assert.deepStrictEqual([swallow.ids, swallow.unread], [["P2"], ["- **P1 Unclosed — x", "- **P3 Also unclosed"]], "a bold never runs into the next item or paragraph");
 
   const repo = makeRepo();
   repo.git("checkout", "-q", "-b", "issue-192", "origin/main");

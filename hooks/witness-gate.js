@@ -13,14 +13,18 @@
  * Engages ONLY for ILR issues (a .claude/tracking/issue-N/ dir exists), so it never
  * blocks ordinary human/other relabels in a repo that doesn't use the ILR.
  *
- * Escape hatch: CATALINA_WITNESS_ALLOW=1 bypasses (prints a loud notice).
+ * Reads the repo gh edits, not the session cwd (#27): a leading `cd <dir>`, `-R/--repo owner/name` or an issue URL
+ * (hooks/lib/target-repo.js). A named repo with no local checkout is let through with a notice.
+ *
+ * Escape hatch: CATALINA_WITNESS_ALLOW=1 bypasses (prints a loud notice): in the hook's env, or on the command
+ * itself as a prefix, through `env`, or from an earlier `export`.
  * Exit 2 = block (PreToolUse convention); exit 0 = allow.
  */
 
 const fs = require("fs");
 const path = require("path");
 
-let mod, catalina, cfgLib;
+let mod, catalina, cfgLib, target;
 try {
   mod = require("./lib/verify-witness");
 } catch {
@@ -33,6 +37,12 @@ try {
   catalina = require(`${pkg}/check`);
   cfgLib = require(`${pkg}/config`);
 } catch {}
+try {
+  // Through the real path: an install links hooks/lib files one by one, so a new module isn't linked until it re-runs.
+  target = require(path.join(fs.realpathSync(__filename), "..", "lib", "target-repo"));
+} catch {
+  process.stderr.write("[witness-gate] target-repo module not found — gate inactive\n");
+}
 
 let data = "";
 process.stdin.setEncoding("utf8");
@@ -52,67 +62,72 @@ process.stdin.on("end", () => {
   } catch {
     return passthrough(0); // unrelated parse failure → fail open
   }
-  if (!command || !mod) return passthrough(0);
+  if (!command || !mod || !target) return passthrough(0);
 
-  // Is this a `gh issue edit` that ADDS the `review` label?
-  if (!/\bgh\s+issue\s+edit\b/.test(command)) return passthrough(0);
-  const labelMatch = command.match(/--add-label(?:=|\s+)(['"]?)([^'"\s]+)\1/);
-  if (!labelMatch) return passthrough(0);
-  const labels = labelMatch[2].split(",").map((s) => s.trim());
-  if (!labels.includes("review")) return passthrough(0); // exact token, not substring
+  // Each `gh issue edit` that ADDS the `review` label (exact token, not substring), with where it runs (#27).
+  const flips = target.parseFlips(command);
+  if (!flips.length) return passthrough(0);
+  const envAllow = process.env.CATALINA_WITNESS_ALLOW === "1";
 
-  // It's a review-flip. Extract the issue number: positional, #N, or issues/N URL.
-  const nMatch =
-    command.match(/\/issues\/(\d+)/) ||
-    command.match(/gh\s+issue\s+edit\s+#?(\d+)/) ||
-    command.match(/#(\d+)/);
-  const n = nMatch ? nMatch[1] : null;
-
-  // Escape hatch
-  if (process.env.CATALINA_WITNESS_ALLOW === "1") {
-    process.stderr.write(
-      `\n[witness-gate] BYPASSED via CATALINA_WITNESS_ALLOW=1 — evidence NOT checked for issue ${n || "?"}.\n\n`
-    );
-    return passthrough(0);
+  let blocked = false;
+  for (const flip of flips) {
+    // Escape hatch: in the hook's env, or written on the command itself (a prefix doesn't reach a hook's env).
+    if (envAllow || flip.allow) {
+      process.stderr.write(
+        `\n[witness-gate] BYPASSED via CATALINA_WITNESS_ALLOW=1 — evidence NOT checked for issue ${flip.numbers.join(", ") || "?"}.\n\n`
+      );
+      continue;
+    }
+    // Fail-closed: review-flip whose number can't be parsed.
+    if (!flip.numbers.length) {
+      process.stderr.write(
+        "\n[witness-gate] BLOCKED: this looks like a flip to `review` but the issue number couldn't be parsed.\n" +
+          "  Use `gh issue edit <N> --add-label review` so the gate can verify issue N's evidence.\n\n"
+      );
+      blocked = true;
+      continue;
+    }
+    const { dir, why, note } = target.resolveFlip(flip, process.cwd());
+    if (note) process.stderr.write(`[witness-gate] note: ${note}\n`);
+    if (!dir) {
+      process.stderr.write(`[witness-gate] issue ${flip.numbers.join(", ")} in ${flip.repo} NOT checked: ${why}. Run the flip from that checkout to gate it.\n`);
+      continue;
+    }
+    for (const n of flip.numbers) if (!gateOne(n, dir)) blocked = true;
   }
+  return passthrough(blocked ? 2 : 0);
+});
 
-  // Fail-closed: review-flip whose number can't be parsed.
-  if (!n) {
-    process.stderr.write(
-      "\n[witness-gate] BLOCKED: this looks like a flip to `review` but the issue number couldn't be parsed.\n" +
-        "  Use `gh issue edit <N> --add-label review` so the gate can verify issue N's evidence.\n\n"
-    );
-    return passthrough(2);
-  }
-
+/** Check issue n in repo dir; false when it must not enter review. */
+function gateOne(n, dir) {
   // Only engage for ILR issues.
-  const dir = path.join(process.cwd(), ".claude", "tracking", `issue-${n}`);
-  if (!fs.existsSync(dir)) return passthrough(0); // not an ILR issue → don't block
+  if (!fs.existsSync(path.join(dir, ".claude", "tracking", `issue-${n}`))) return true; // not an ILR issue → don't block
+  const where = path.resolve(dir) === path.resolve(process.cwd()) ? "" : ` in ${dir}`;
 
   // Projects that adopted Catalina (.catalina/config.json on the default branch) get the full
   // check, reading the red proof from its cache only — a hook must finish fast, and the red
   // run belongs to `catalina check --witness`. Others keep the evidence-only validator.
   let adopted = null;
   try {
-    adopted = catalina && cfgLib.load(process.cwd());
+    adopted = catalina && cfgLib.load(dir);
   } catch {}
   const { ok, reasons, needsHuman = 0 } = adopted
-    ? catalina.check(n, { cwd: process.cwd(), source: "worktree", red: "cache", config: adopted })
-    : mod.verifyWitness(n, { repoRoot: process.cwd() });
+    ? catalina.check(n, { cwd: dir, source: "worktree", red: "cache", config: adopted })
+    : mod.verifyWitness(n, { repoRoot: dir });
   if (ok) {
     if (needsHuman) {
       process.stderr.write(
-        `[witness-gate] issue ${n}: ${needsHuman} needs_human item(s) — allowed into review, but a human must confirm before ship.\n`
+        `[witness-gate] issue ${n}${where}: ${needsHuman} needs_human item(s) — allowed into review, but a human must confirm before ship.\n`
       );
     }
-    return passthrough(0);
+    return true;
   }
 
   process.stderr.write(
-    `\n[witness-gate] BLOCKED: issue ${n} cannot enter \`review\` — witness evidence is incomplete:\n` +
+    `\n[witness-gate] BLOCKED: issue ${n}${where} cannot enter \`review\` — witness evidence is incomplete:\n` +
       reasons.map((r) => `  - ${r}`).join("\n") +
       `\n\n  Fix the evidence in .claude/tracking/issue-${n}/verification.jsonl (go to the gemba — capture real artifacts),\n` +
       `  or override with CATALINA_WITNESS_ALLOW=1 if you truly must.\n\n`
   );
-  return passthrough(2);
-});
+  return false;
+}
