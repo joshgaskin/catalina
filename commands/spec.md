@@ -201,7 +201,7 @@ Now write the spec with full context from the answers.
    > - **Trivial** (≤3 files, no shared utils, no new patterns): one short paragraph; usually "no significant failure modes."
    > - **Non-trivial** (>3 files OR shared utils OR new patterns): full ranked list of 3–5 failure modes.
    >
-   > Output two sections: **Fence findings** and **Premortem**. Premortem format, numbered: `- **P1 {Scenario}** — early sign: {x}; mitigation: {y}`. The bold must open with the ID (`catalina check` reads it there; a ` — `, a colon or nothing may follow); a `- P1 …` line without it fails the check. For a trivial ticket, one line: `Trivial: <reason>`.
+   > Output two sections: **Fence findings** and **Premortem**. Premortem format, numbered: `- **P1 {Scenario}** — early sign: {x}; mitigation: {y}`. The bold must open with the ID (`catalina check` reads it there; a ` — `, a colon or nothing may follow); a `- P1 …` line without it fails the check, in any list form. For a trivial ticket, one line: `Trivial: <reason>`.
 
    Fold the fence findings into Design Notes. Write the premortem into the `## Premortem` section of tracking.md, keeping the IDs — **always written down, on every ticket**: a review that ran but isn't in the file didn't happen as far as the gate is concerned. Record the review in `## Review History`. If mitigations require AC changes, apply them before presenting.
 

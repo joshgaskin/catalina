@@ -336,7 +336,8 @@ the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the p
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
 blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
 A premortem item's bold opens with its ID (`- **P1 …**`, wrapping onto the next line is fine); any separator may follow
-it. A top-level `- P1 …` line the check can't read as an item (no bold, an unclosed bold) fails, naming the format.
+it, and any list form counts (`-`, `*`, `+`, `1.`, at any indent). A list line led by an ID that the check can't read as
+an item (no bold, an unclosed bold) fails, naming the format.
 
 A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
 commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
@@ -345,9 +346,13 @@ hand to something other than the witnessed version is unwitnessed code, and the 
 
 **`hooks/witness-gate.js`** (Claude Code, PreToolUse on Bash) runs the same check, red proof from the cache only, on
 every `gh issue edit … --add-label review`, against the repo gh edits, not the session's cwd: a leading `cd <dir>`
-(in order, relative to the cwd), else `-R/--repo owner/name` or an issue URL, which it maps to a local checkout (the
-cwd's repo when a remote matches, else `<parent of its main checkout>/<name>`). `git -C` doesn't count, since gh
-doesn't read it; the gate notes it when it names another repo. A named repo with no local checkout is let through
+(in order, relative to the cwd; a cd inside `( … )` or `$( … )` ends with it), else `-R/--repo owner/name`, an issue
+URL or `GH_REPO` (prefix, export or the session env, in that order), which it maps to a local checkout (the cwd's repo
+when a remote matches, else `<parent of its main checkout>/<name>`). gh behind a path or a wrapper (`timeout`,
+`command`, `env`, `xargs`, `bash -c`, `eval`) counts. `git -C` doesn't count, since gh doesn't read it; the gate notes
+it when it names another repo. What it can't read fails closed: a cd it can't resolve to a dir (`cd $WT`, `cd $(…)`, a
+missing dir) doesn't move it, with a note, and a flip the pre-#27 regex sees but the parser can't place is checked in
+the session repo. A named repo with no local checkout is let through
 with a stderr line saying it wasn't checked. Several numbers in one edit are each gated. `CATALINA_WITNESS_ALLOW=1`
 bypasses it in the hook's env or written on the command (`CATALINA_WITNESS_ALLOW=1 gh …`, `env …`, an earlier
 `export`), always with a BYPASSED notice.

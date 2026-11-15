@@ -13,8 +13,10 @@
  * Engages ONLY for ILR issues (a .claude/tracking/issue-N/ dir exists), so it never
  * blocks ordinary human/other relabels in a repo that doesn't use the ILR.
  *
- * Reads the repo gh edits, not the session cwd (#27): a leading `cd <dir>`, `-R/--repo owner/name` or an issue URL
- * (hooks/lib/target-repo.js). A named repo with no local checkout is let through with a notice.
+ * Reads the repo gh edits, not the session cwd (#27): a leading `cd <dir>`, `-R/--repo owner/name`, an issue URL or
+ * GH_REPO (hooks/lib/target-repo.js). A named repo with no local checkout is let through with a notice. What it can't
+ * read fails closed: a cd it can't resolve doesn't move it, and a flip the pre-#27 regex sees but the parser can't
+ * place is checked in the session repo.
  *
  * Escape hatch: CATALINA_WITNESS_ALLOW=1 bypasses (prints a loud notice): in the hook's env, or on the command
  * itself as a prefix, through `env`, or from an earlier `export`.
@@ -65,8 +67,15 @@ process.stdin.on("end", () => {
   if (!command || !mod || !target) return passthrough(0);
 
   // Each `gh issue edit` that ADDS the `review` label (exact token, not substring), with where it runs (#27).
-  const flips = target.parseFlips(command);
-  if (!flips.length) return passthrough(0);
+  const ctx = target.initialCtx(process.env);
+  const flips = target.parseFlips(command, ctx);
+  if (!flips.length) {
+    // Backstop: the pre-#27 whole-string read. A flip it sees that the parser can't place is gated as it was then.
+    const old = legacyFlip(command);
+    if (!old) return passthrough(0);
+    process.stderr.write("[witness-gate] note: couldn't read where this `gh issue edit` runs, so it is checked in the session repo\n");
+    flips.push({ numbers: old.n ? [old.n] : [], repo: ctx.ghRepo, cds: [], allow: false, gitC: [] });
+  }
   const envAllow = process.env.CATALINA_WITNESS_ALLOW === "1";
 
   let blocked = false;
@@ -87,8 +96,8 @@ process.stdin.on("end", () => {
       blocked = true;
       continue;
     }
-    const { dir, why, note } = target.resolveFlip(flip, process.cwd());
-    if (note) process.stderr.write(`[witness-gate] note: ${note}\n`);
+    const { dir, why, notes } = target.resolveFlip(flip, process.cwd());
+    for (const note of notes) process.stderr.write(`[witness-gate] note: ${note}\n`);
     if (!dir) {
       process.stderr.write(`[witness-gate] issue ${flip.numbers.join(", ")} in ${flip.repo} NOT checked: ${why}. Run the flip from that checkout to gate it.\n`);
       continue;
@@ -97,6 +106,15 @@ process.stdin.on("end", () => {
   }
   return passthrough(blocked ? 2 : 0);
 });
+
+/** The gate's pre-#27 read of a command, kept as a backstop: { n } (n may be null) when it looks like a review flip. */
+function legacyFlip(command) {
+  if (!/\bgh\s+issue\s+edit\b/.test(command)) return null;
+  const labelMatch = command.match(/--add-label(?:=|\s+)(['"]?)([^'"\s]+)\1/);
+  if (!labelMatch || !labelMatch[2].split(",").map((s) => s.trim()).includes("review")) return null;
+  const nMatch = command.match(/\/issues\/(\d+)/) || command.match(/gh\s+issue\s+edit\s+#?(\d+)/) || command.match(/#(\d+)/);
+  return { n: nMatch ? nMatch[1] : null };
+}
 
 /** Check issue n in repo dir; false when it must not enter review. */
 function gateOne(n, dir) {

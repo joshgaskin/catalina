@@ -12,9 +12,20 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-/** Split into simple commands of words, quote-aware: [[word…]…]. Separators: && || ; | & newline. */
+/** Marks where a command substitution or arithmetic sat in a word: its value isn't known until the shell runs. */
+const DYN = "\u0000";
+/** A word holding an expansion the parser can't do (a variable, `$(…)`, backticks). */
+const DYNAMIC = /[$`\u0000]/;
+const POPD = "\u0001popd";
+
+/**
+ * Split into simple commands of words, quote-aware, in order: [[word…] | {open} | {close}…]. Separators: && || ; | &
+ * newline. `( … )`, `$( … )`, `<( … )` and backticks are subshells: their commands come between an {open} and a
+ * {close}, so a cd inside doesn't outlive them. A substitution leaves DYN in the word it sat in. `{ }` is not a subshell.
+ */
 function simpleCommands(command) {
-  const cmds = [];
+  const out = [];
+  const frames = [];
   let words = [];
   let word = null; // null: between words
   const s = String(command);
@@ -24,8 +35,28 @@ function simpleCommands(command) {
   };
   const next = () => {
     end();
-    if (words.length) cmds.push(words);
+    if (words.length) out.push(words);
     words = [];
+  };
+  const open = (kind) => {
+    if (kind === "sub") {
+      next();
+      frames.push({ kind });
+    } else {
+      frames.push({ kind, words, word });
+      words = [];
+      word = null;
+    }
+    out.push({ open: true });
+  };
+  const close = () => {
+    const f = frames.pop();
+    next();
+    out.push({ close: true });
+    if (f.kind !== "sub") {
+      words = f.words;
+      word = (f.word ?? "") + DYN;
+    }
   };
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
@@ -45,19 +76,41 @@ function simpleCommands(command) {
       i = j;
     } else if (c === "\\" && i + 1 < s.length) {
       word = (word ?? "") + s[++i];
+    } else if (c === "$" && s[i + 1] === "(" && s[i + 2] === "(") {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < s.length; j++) {
+        if (s[j] === "(") depth++;
+        else if (s[j] === ")" && --depth === 0) break;
+      }
+      word = (word ?? "") + DYN; // $(( arithmetic ))
+      i = j;
+    } else if ((c === "$" || c === "<" || c === ">") && s[i + 1] === "(") {
+      open("cmdsub");
+      i++;
+    } else if (c === "`") {
+      if (frames.length && frames[frames.length - 1].kind === "tick") close();
+      else open("tick");
+    } else if (c === "&" && (s[i - 1] === ">" || s[i - 1] === "<" || s[i + 1] === ">")) {
+      word = (word ?? "") + c; // a redirect (2>&1, &>), not a separator
     } else if (c === "&" || c === "|" || c === ";" || c === "\n") {
       next();
       if ((c === "&" || c === "|") && s[i + 1] === c) i++;
     } else if (/\s/.test(c)) {
       end();
-    } else if (c === "(" || c === ")" || ((c === "{" || c === "}") && word === null)) {
-      next(); // a subshell, a group or a $(…) opens or closes a command
+    } else if (c === "(") {
+      open("sub");
+    } else if (c === ")") {
+      if (frames.length && frames[frames.length - 1].kind !== "tick") close();
+      else next();
+    } else if ((c === "{" || c === "}") && word === null && (i + 1 >= s.length || /[\s;&|)]/.test(s[i + 1]))) {
+      next(); // a group opens or closes a command, but shares the shell
     } else {
       word = (word ?? "") + c;
     }
   }
   next();
-  return cmds;
+  return out;
 }
 
 const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -69,8 +122,9 @@ const VALUE_FLAGS = new Set([
   "--remove-project", "-b", "--body", "-F", "--body-file", "-m", "--milestone", "-t", "--title",
 ]);
 
-/** owner/name from a -R value (`owner/name` or `host/owner/name`). */
+/** owner/name from a -R or GH_REPO value (`owner/name` or `host/owner/name`); a value with an expansion is kept as is. */
 const slugOf = (v) => {
+  if (DYNAMIC.test(String(v))) return String(v);
   const parts = String(v).replace(/\.git$/, "").split("/").filter(Boolean);
   return parts.length >= 2 ? parts.slice(-2).join("/") : null;
 };
@@ -116,43 +170,107 @@ function readGh(words) {
   return { numbers, repo };
 }
 
-const SHELLS = new Set(["sh", "bash", "zsh", "dash"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+/** Commands that run the command after them (with their own options in between). */
+const WRAPPERS = new Set(["command", "builtin", "exec", "nohup", "time", "timeout", "gtimeout", "nice", "ionice", "sudo", "doas", "xargs", "stdbuf", "caffeinate", "noglob"]);
+const STATE = new Set(["cd", "pushd", "popd", "export", "unset"]);
+
+/** What a wrapper runs: gh, env, eval or a shell (and, for `command`/`builtin`, a builtin that moves state). */
+const isTarget = (w, builtin) => {
+  const b = path.basename(w);
+  return b === "gh" || b === "env" || b === "eval" || SHELLS.has(b) || (builtin && STATE.has(b));
+};
+
+/** Strip leading assignments, `env` and wrappers: { words, assigns, chdir } (chdir from `env -C`). */
+function unwrap(cmd) {
+  const assigns = [];
+  let chdir = null;
+  let words = cmd;
+  for (let guard = 0; guard < 10 && words.length; guard++) {
+    let i = 0;
+    while (i < words.length && ASSIGN.test(words[i])) assigns.push(words[i++]);
+    words = words.slice(i);
+    const head = path.basename(words[0] || "");
+    if (head === "env") {
+      let j = 1;
+      for (; j < words.length; j++) {
+        const w = words[j];
+        if (ASSIGN.test(w)) assigns.push(w);
+        else if (w === "-u" || w === "--unset" || w === "-S" || w === "--split-string") j++;
+        else if (w === "-C" || w === "--chdir") chdir = words[++j];
+        else if (w.startsWith("--chdir=")) chdir = w.slice(8);
+        else if (!w.startsWith("-")) break;
+      }
+      words = words.slice(j);
+      continue;
+    }
+    if (WRAPPERS.has(head)) {
+      const j = words.findIndex((w, k) => k > 0 && isTarget(w, head === "command" || head === "builtin"));
+      if (j < 0) return { words: [], assigns, chdir };
+      if (head === "sudo" || head === "doas") for (const w of words.slice(1, j)) if (ASSIGN.test(w)) assigns.push(w);
+      words = words.slice(j);
+      continue;
+    }
+    break;
+  }
+  return { words, assigns, chdir };
+}
+
+/** The parse state a command starts in: the hook's own env can name the repo (GH_REPO) for gh too. */
+const initialCtx = (env = {}) => ({ cds: [], gitC: [], exported: false, ghRepo: env.GH_REPO ? slugOf(env.GH_REPO) : null });
 
 /**
  * Every review flip in a command: { numbers, repo, cds, allow, gitC }. cds are the `cd` arguments before it, in order
- * (unresolved); allow is the bypass as a prefix, through `env`, or from an earlier `export`; gitC lists `git -C` dirs.
- * A `bash -c '<script>'` is read as a child shell: it starts where its parent is and inherits the bypass.
+ * (unresolved, so resolveFlip can refuse what it can't resolve); allow is the bypass as a prefix, through `env`, or
+ * from an earlier `export`; repo comes from -R, an issue URL or GH_REPO, in that order; gitC lists `git -C` dirs with
+ * the cds they ran after. A `bash -c '<script>'` is read as a child shell (it starts where its parent is and inherits
+ * what was exported); `eval` runs in the same shell. A subshell's cd, export or unset ends with it.
  */
-function parseFlips(command, ctx = { cds: [], gitC: [], exported: false }, depth = 0) {
+function parseFlips(command, ctx = initialCtx(), depth = 0) {
   const flips = [];
+  const scopes = [];
   const { cds, gitC } = ctx;
-  for (const cmd of simpleCommands(command)) {
-    let i = 0;
-    const assigns = [];
-    while (i < cmd.length && ASSIGN.test(cmd[i])) assigns.push(cmd[i++]);
-    let words = cmd.slice(i);
-    if (words[0] === "env") {
-      let j = 1;
-      while (j < words.length && (ASSIGN.test(words[j]) || words[j].startsWith("-"))) assigns.push(words[j++]);
-      words = words.slice(j);
+  for (const item of simpleCommands(command)) {
+    if (item.open) {
+      scopes.push({ n: cds.length, exported: ctx.exported, ghRepo: ctx.ghRepo });
+      continue;
     }
-    const allow = assigns.includes(ALLOW) || (ctx.exported && !assigns.some((a) => a.startsWith("CATALINA_WITNESS_ALLOW=")));
-    const head = words[0];
+    if (item.close) {
+      const sc = scopes.pop();
+      if (sc) Object.assign(ctx, { exported: sc.exported, ghRepo: sc.ghRepo }), (cds.length = sc.n);
+      continue;
+    }
+    const { words, assigns, chdir } = unwrap(item);
+    const setsAllow = assigns.some((a) => a.startsWith("CATALINA_WITNESS_ALLOW="));
+    const allow = assigns.includes(ALLOW) || (ctx.exported && !setsAllow);
+    const repoAssign = assigns.filter((a) => a.startsWith("GH_REPO=")).pop();
+    const ghRepo = repoAssign ? slugOf(repoAssign.slice(8)) : ctx.ghRepo;
+    const here = chdir ? [...cds, chdir] : [...cds];
+    const head = path.basename(words[0] || "");
     if (head === "cd" || head === "pushd") {
-      const arg = words.slice(1).find((w) => !w.startsWith("-"));
+      const arg = words.slice(1).find((w) => w === "-" || !w.startsWith("-"));
       cds.push(arg ?? "~");
-    } else if (head === "export") {
-      if (words.slice(1).includes(ALLOW)) ctx.exported = true;
-      else if (words.slice(1).some((w) => w.startsWith("CATALINA_WITNESS_ALLOW="))) ctx.exported = false;
+    } else if (head === "popd") {
+      cds.push(POPD);
+    } else if (head === "export" || head === "unset") {
+      for (const w of words.slice(1)) {
+        const name = head === "unset" ? w : w.split("=")[0];
+        const value = head === "unset" || !w.includes("=") ? null : w.slice(name.length + 1);
+        if (name === "CATALINA_WITNESS_ALLOW" && (head === "unset" || value !== null)) ctx.exported = value === "1";
+        if (name === "GH_REPO" && (head === "unset" || value !== null)) ctx.ghRepo = value === null ? null : slugOf(value);
+      }
     } else if (head === "git") {
-      for (let j = 1; j < words.length - 1; j++) if (words[j] === "-C") gitC.push(words[j + 1]);
+      for (let j = 1; j < words.length - 1; j++) if (words[j] === "-C") gitC.push({ cds: here, dir: words[j + 1] });
     } else if (head === "gh") {
       const flip = readGh(words);
-      if (flip) flips.push({ ...flip, cds: [...cds], allow, gitC: [...gitC] });
-    } else if (SHELLS.has(path.basename(head || "")) && depth < 3) {
+      if (flip) flips.push({ numbers: flip.numbers, repo: flip.repo || ghRepo || null, cds: here, allow, gitC: [...gitC] });
+    } else if (head === "eval" && depth < 3) {
+      const inner = assigns.length ? { ...ctx, exported: allow, ghRepo } : ctx; // same shell: its cds stay shared
+      flips.push(...parseFlips(words.slice(1).join(" "), inner, depth + 1));
+    } else if (SHELLS.has(head) && depth < 3) {
       const c = words.findIndex((w, j) => j > 0 && /^-[a-z]*c[a-z]*$/.test(w));
       if (c > 0 && words[c + 1] !== undefined) {
-        flips.push(...parseFlips(words[c + 1], { cds: [...cds], gitC: [...gitC], exported: allow }, depth + 1));
+        flips.push(...parseFlips(words[c + 1], { cds: here, gitC: [...gitC], exported: allow, ghRepo }, depth + 1));
       }
     }
   }
@@ -194,39 +312,85 @@ function hasRemote(top, slug) {
 }
 
 const expand = (p, home) => String(p).replace(/^~(?=\/|$)/, home).replace(/^\$HOME(?=\/|$)/, home).replace(/^\$\{HOME\}(?=\/|$)/, home);
+/** A word as the user wrote it, for a message. */
+const shown = (w) => String(w).split(DYN).join("$(…)");
+
+const isDir = (p) => {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 /**
- * Where a flip's issues live: { dir } (a repo top level), or { dir: null, why } when it names a repo with no local
- * checkout here. `note` is set when a `git -C` in the command is a different repo than the one gated.
+ * Walk cds from cwd. A cd it can't resolve to an existing dir (an expansion, a missing dir) doesn't move it: the walk
+ * keeps the last dir it could resolve, fail closed, and pushes a note.
+ */
+function walk(cds, cwd, home, notes) {
+  let here = cwd;
+  let prev = cwd;
+  const hist = [];
+  for (const d of cds) {
+    if (d === POPD) {
+      if (hist.length) [prev, here] = [here, hist.pop()];
+      continue;
+    }
+    if (d === "-") {
+      [prev, here] = [here, prev];
+      continue;
+    }
+    const e = expand(d, home);
+    const to = DYNAMIC.test(e) ? null : path.resolve(here, e);
+    if (!to || !isDir(to)) {
+      notes.push(`can't resolve \`cd ${shown(d)}\` to a dir, so it doesn't move the gate (reading ${here})`);
+      continue;
+    }
+    hist.push(here);
+    [prev, here] = [here, to];
+  }
+  return here;
+}
+
+/**
+ * Where a flip's issues live: { dir, notes } (dir a repo top level, or the dir it runs in), or { dir: null, why, notes }
+ * when it names a repo with no local checkout here. notes say what the gate couldn't read and fell back on, and when a
+ * `git -C` in the command is a different repo than the one gated.
  */
 function resolveFlip(flip, cwd, home = os.homedir()) {
-  let here = cwd;
-  for (const d of flip.cds) here = path.resolve(here, expand(d, home));
+  const notes = [];
+  const here = walk(flip.cds, cwd, home, notes);
   const top = topLevel(here);
   let dir = top || here;
-  if (flip.repo) {
+  let repo = flip.repo;
+  if (repo && DYNAMIC.test(repo)) {
+    notes.push(`can't read the repo \`${shown(repo)}\` names, so the gate reads ${dir}`);
+    repo = null;
+  }
+  if (repo) {
     const base = top ? mainCheckout(top) : here;
-    const name = flip.repo.split("/")[1];
+    const name = repo.split("/")[1];
     const candidates = [top, base, path.join(path.dirname(base), name), path.join(here, name)].filter(Boolean);
     dir = null;
     for (const c of candidates) {
       const t = topLevel(c);
-      if (t && hasRemote(t, flip.repo)) {
+      if (t && hasRemote(t, repo)) {
         dir = t;
         break;
       }
     }
-    if (!dir) return { dir: null, why: `no local checkout of ${flip.repo} found (looked at ${[...new Set(candidates)].join(", ")})` };
+    if (!dir) return { dir: null, why: `no local checkout of ${repo} found (looked at ${[...new Set(candidates)].join(", ")})`, notes };
   }
-  let note = null;
   for (const g of flip.gitC) {
-    const other = topLevel(path.resolve(cwd, expand(g, home)));
+    if (DYNAMIC.test(expand(g.dir, home))) continue;
+    const at = walk(g.cds, cwd, home, []);
+    const other = topLevel(path.resolve(at, expand(g.dir, home)));
     if (other && other !== dir) {
-      note = `\`git -C ${g}\` doesn't change the repo gh edits: issue ${flip.numbers.join(", ") || "?"} is in ${dir} (git -C names ${other})`;
+      notes.push(`\`git -C ${g.dir}\` doesn't change the repo gh edits: issue ${flip.numbers.join(", ") || "?"} is in ${dir} (git -C names ${other})`);
       break;
     }
   }
-  return { dir, note };
+  return { dir, notes };
 }
 
-module.exports = { parseFlips, resolveFlip, simpleCommands };
+module.exports = { parseFlips, resolveFlip, simpleCommands, initialCtx };
