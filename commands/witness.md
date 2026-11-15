@@ -30,8 +30,9 @@ What you write here is what `catalina check` reads: it gates every push to the d
    tracking files after it — `catalina check` fails if code changes after the witnessed sha.
 
 0. **Preflight — confirm the gates are live.** Check that `witness-gate.js` is wired as a
-   PreToolUse(Bash) hook in `~/.claude/settings.json` or the project's `.claude/settings.json`,
-   and that the repo's hooks dir has Catalina's `pre-push`. If either is missing, say so loudly:
+   PreToolUse(Bash) hook in `~/.claude/settings.json` or the project's `.claude/settings.json`
+   with `"timeout": 15` and `"onFailure": "block"` (so a slow or broken gate blocks rather than lets
+   the flip through), and that the repo's hooks dir has Catalina's `pre-push`. If either is missing, say so loudly:
    the review flip or the push won't be gated this session. (`install.sh` wires both.)
 
 1. **Read the spec:**

@@ -270,11 +270,12 @@ test("#27 AC12: the gate fails closed: a deadline, a crash or input it can't rea
   const b = twoRepos(183, { session: "none", target: "none" });
   fs.mkdirSync(path.join(b.s.cwd, ".claude", "tracking", "issue-183", "verification.jsonl"), { recursive: true });
   fs.writeFileSync(path.join(b.s.cwd, ".claude", "tracking", "issue-183", "tracking.md"), "# x\n");
+  b.s.git("commit", "--allow-empty", "-m", "touch (Refs #183)"); // so the check reaches the evidence read
   const eisdir = gate(b.s.cwd, `gh issue edit 183 ${FLIP}`);
   assert.strictEqual(eisdir.code, 2, eisdir.err);
   assert.match(eisdir.err, GATE_ERROR);
 
-  const raw = (input) => spawnSync("node", [HOOK], { cwd: a.s.cwd, encoding: "utf8", input }).status;
+  const raw = (input) => spawnSync("node", [HOOK], { cwd: a.s.cwd, encoding: "utf8", input, maxBuffer: 64 * 1024 * 1024 }).status;
   assert.strictEqual(raw(`{"tool_input": {"command": "gh issue edit 182 --add-label review"`), 2, "broken JSON that mentions review");
   assert.strictEqual(raw(`{"tool_input": {"command": "ls"`), 0, "broken JSON that doesn't");
   const big = JSON.stringify({ tool_input: { command: `gh issue edit 182 ${FLIP} # ${"x".repeat(1100 * 1024)}` } });

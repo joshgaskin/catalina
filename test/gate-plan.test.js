@@ -159,6 +159,9 @@ function ghTarget({ pwd, ghRepo, args }) {
   }
 }
 
+/** Commands the oracle never runs for real: they could change files, processes or the network outside its box. */
+const DANGER = /\b(rm|rmdir|chmod|chown|kill|pkill|killall|open|osascript|curl|wget|ssh|scp|rsync|dd|mv|cp|ln|shutdown|reboot|launchctl|defaults|security|sudo|doas|truncate|tee)\b|>/;
+
 test("#27 oracle: a flip the gate reads as naming its repo edits that repo when run for real (bash, and zsh eval)", () => {
   const shells = ["bash", ...(fs.existsSync("/bin/zsh") ? ["zsh"] : [])];
   const extra = [
@@ -177,6 +180,7 @@ test("#27 oracle: a flip the gate reads as naming its repo edits that repo when 
     const explicit = p.flips.filter((f) => f.explicit);
     if (!explicit.length || p.mode === "union") continue;
     if (/(^|[\s;&|])\/\S*\/gh\s/.test(c.command)) continue; // a gh by path would be the real gh
+    if (DANGER.test(c.command)) continue; // never run a case that could touch more than the sandbox
     for (const shell of shells) {
       const calls = realRun(shell, c.command, c.cwd).filter((k) => k.args.includes("edit"));
       for (const f of explicit) {

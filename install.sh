@@ -123,13 +123,14 @@ for (const ev of Object.keys(s.hooks)) {
     .filter((e) => e.hooks.length);
   if (!s.hooks[ev].length) delete s.hooks[ev];
 }
-const add = (ev, matcher, file) => {
+const add = (ev, matcher, file, extra = {}) => {
   s.hooks[ev] = s.hooks[ev] || [];
-  const entry = { hooks: [{ type: "command", command: `node ${path.join(dir, file)}` }] };
+  const entry = { hooks: [{ type: "command", command: `node ${path.join(dir, file)}`, ...extra }] };
   s.hooks[ev].push(matcher ? { matcher, ...entry } : entry);
 };
 add("PreToolUse", "Bash", "pre-tool-guardrail.js");
-add("PreToolUse", "Bash", "witness-gate.js");
+// The witness gate fails closed: past 15 s, or if the hook itself breaks, Claude Code blocks the command (#27).
+add("PreToolUse", "Bash", "witness-gate.js", { timeout: 15, onFailure: "block" });
 add("PostToolUse", "Edit|Write", "post-edit-format.js");
 add("PostToolUse", "Edit|Write", "post-edit-typecheck.js");
 add("Stop", null, "post-edit-typecheck.js");
