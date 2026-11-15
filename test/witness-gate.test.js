@@ -176,7 +176,7 @@ test("#27 witness fix 3: wrapped gh is gated, and anything the old regex caught 
     `echo 174 | xargs -I{} gh issue edit {} ${FLIP}`,
     `echo "gh issue edit 174 ${FLIP}"`,
   ]) assert.strictEqual(gate(a.s.cwd, c).code, 2, c);
-  assert.match(gate(a.s.cwd, `echo "gh issue edit 174 ${FLIP}"`).err, /couldn't read/);
+  assert.match(gate(a.s.cwd, `echo "gh issue edit 174 ${FLIP}"`).err, /too complex/);
 });
 
 test("#27 witness fix 4: git -C after a cd is read from that dir", () => {
@@ -196,5 +196,55 @@ test("#27 witness fix 5: GH_REPO (prefix, export, or the hook's env) names the r
     const r = gate(a.s.cwd, c, env);
     assert.strictEqual(r.code, 2, `${c} ${JSON.stringify(env)}: ${r.err}`);
     assert.match(r.err, /P1 has no verification/);
+  }
+});
+
+test("#27 second witness: a script too complex to pick one repo is checked in the session repo and every repo it names", () => {
+  const a = twoRepos(177, { session: "fail", target: "pass" });
+  for (const c of [
+    `cat > /dev/null <<'X'\ncd ${a.t.cwd}\nX\ngh issue edit 177 ${FLIP}`,
+    `false && cd ${a.t.cwd}; gh issue edit 177 ${FLIP}`,
+    `f(){ cd ${a.t.cwd}; }; gh issue edit 177 ${FLIP}`,
+    `cd ${a.t.cwd} | cat; gh issue edit 177 ${FLIP}`,
+  ]) {
+    const r = gate(a.s.cwd, c);
+    assert.strictEqual(r.code, 2, `${c}: ${r.err}`);
+    assert.match(r.err, /P1 has no verification/, c);
+    assert.strictEqual(r.err.match(/too complex/g).length, 1, c);
+  }
+  const b = twoRepos(178, { session: "pass", target: "fail" });
+  const r = gate(b.s.cwd, `cd ${b.t.cwd} || true; gh issue edit 178 ${FLIP}`);
+  assert.strictEqual(r.code, 2, "the target it might reach fails, so it blocks");
+  assert.ok(r.err.includes(fs.realpathSync(b.t.cwd)), r.err);
+});
+
+test("#27 second witness: the bypass on a complex script is ignored, and says so", () => {
+  const a = twoRepos(179, { session: "fail", target: "none" });
+  for (const c of [
+    `f(){ export CATALINA_WITNESS_ALLOW=1; }; gh issue edit 179 ${FLIP}`,
+    `false && export CATALINA_WITNESS_ALLOW=1; gh issue edit 179 ${FLIP}`,
+    `true # ; export CATALINA_WITNESS_ALLOW=1\ngh issue edit 179 ${FLIP}`,
+  ]) assert.strictEqual(gate(a.s.cwd, c).code, 2, c);
+  const r = gate(a.s.cwd, `true || true; CATALINA_WITNESS_ALLOW=1 gh issue edit 179 ${FLIP}`);
+  assert.strictEqual(r.code, 2, r.err);
+  assert.match(r.err, /CATALINA_WITNESS_ALLOW=1 on this command is ignored/);
+  assert.strictEqual(gate(a.s.cwd, `gh issue edit 179 ${FLIP}`, { CATALINA_WITNESS_ALLOW: "1" }).code, 0, "the hook's own env still bypasses");
+});
+
+test("#27 second witness: an unreadable flip beside a readable one is still checked", () => {
+  const a = twoRepos(180, { session: "fail", target: "none" });
+  for (const c of [
+    `env -S 'gh issue edit 180 ${FLIP}' && gh issue edit 99999 ${FLIP}`,
+    `if true; then gh issue edit 180 ${FLIP}; fi; gh issue edit 99999 ${FLIP}`,
+    `sudo -u gh gh issue edit 180 ${FLIP}; gh issue edit 99999 ${FLIP}`,
+  ]) assert.strictEqual(gate(a.s.cwd, c).code, 2, c);
+});
+
+test("#27 second witness: -R in ssh or https URL form finds the checkout", () => {
+  const a = twoRepos(181, { session: "pass", target: "fail" });
+  for (const v of ["git@github.com:o/target.git", "https://github.com/o/target.git", "github.com/o/target"]) {
+    const r = gate(a.s.cwd, `gh issue edit 181 ${FLIP} -R ${v}`);
+    assert.strictEqual(r.code, 2, `${v}: ${r.err}`);
+    assert.doesNotMatch(r.err, /NOT checked/, v);
   }
 });

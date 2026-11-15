@@ -345,17 +345,23 @@ differences only in files that are neither code nor tests (RELEASE_NOTES.md, doc
 hand to something other than the witnessed version is unwitnessed code, and the check names it.
 
 **`hooks/witness-gate.js`** (Claude Code, PreToolUse on Bash) runs the same check, red proof from the cache only, on
-every `gh issue edit … --add-label review`, against the repo gh edits, not the session's cwd: a leading `cd <dir>`
-(in order, relative to the cwd; a cd inside `( … )` or `$( … )` ends with it), else `-R/--repo owner/name`, an issue
-URL or `GH_REPO` (prefix, export or the session env, in that order), which it maps to a local checkout (the cwd's repo
-when a remote matches, else `<parent of its main checkout>/<name>`). gh behind a path or a wrapper (`timeout`,
-`command`, `env`, `xargs`, `bash -c`, `eval`) counts. `git -C` doesn't count, since gh doesn't read it; the gate notes
-it when it names another repo. What it can't read fails closed: a cd it can't resolve to a dir (`cd $WT`, `cd $(…)`, a
-missing dir) doesn't move it, with a note, and a flip the pre-#27 regex sees but the parser can't place is checked in
-the session repo. A named repo with no local checkout is let through
-with a stderr line saying it wasn't checked. Several numbers in one edit are each gated. `CATALINA_WITNESS_ALLOW=1`
-bypasses it in the hook's env or written on the command (`CATALINA_WITNESS_ALLOW=1 gh …`, `env …`, an earlier
-`export`), always with a BYPASSED notice.
+every `gh issue edit … --add-label review`. It picks the repo gh edits, not the session's cwd, only when the command is
+a **simple script**: a flat list of simple commands joined by `&&` or `;`, with no heredoc, comment, function, `{ }`
+group, control flow (if/for/while/case), `||`, eval, source, popd, pipe or background stage holding a cd/pushd/export,
+and nothing it can't read (an unresolved cd or `-R`, a flip the pre-#27 regex or a raw scan sees that the parser
+didn't read). There the target is a leading `cd <dir>` (in order, relative to the cwd; a cd inside `( … )` or `$( … )`
+ends with it; a dir that isn't a repo also gates the session repo), else `-R/--repo` (`owner/name`, `host/owner/name`,
+`git@host:owner/name(.git)`, `https://host/owner/name(.git)`), an issue URL or `GH_REPO` (prefix, export or the session
+env, in that order), mapped to a local checkout (the cwd's repo when a remote matches, else
+`<parent of its main checkout>/<name>`). gh behind a path or a wrapper (`timeout`, `command`, `env`, `sudo`, `xargs`,
+`bash -c`) counts. `git -C` doesn't count, since gh doesn't read it; the gate notes it when it names another repo. A
+named repo with no local checkout is let through with a stderr line saying it wasn't checked.
+Any other command is **complex**: every number any reader found (parser, raw scan, pre-#27 regex) is checked in the
+session repo and in every repo a cd, pushd, `-R`, URL or `GH_REPO` in the text could reach, it blocks if any fails, and
+one note says the script was too complex to pick one repo. That is never looser than the pre-#27 gate. A flip with no
+readable number blocks. Several numbers in one edit are each gated. `CATALINA_WITNESS_ALLOW=1` bypasses it in the
+hook's env, or written on a simple script (`CATALINA_WITNESS_ALLOW=1 gh …`, `env …`, an earlier `export`), always with
+a BYPASSED notice; written on a complex script it is ignored, with a note.
 
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
