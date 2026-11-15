@@ -148,3 +148,53 @@ test("#27 AC5: the hook finds its parsing module when installed as per-file link
   const r = gate(a.s.cwd, `cd ${a.t.cwd} && gh issue edit 172 ${FLIP}`, {}, path.join(dir, "witness-gate.js"));
   assert.strictEqual(r.code, 0, r.err);
 });
+
+test("#27 witness fixes 1-2: an unresolvable or subshell cd gates the session repo, as main does", () => {
+  const a = twoRepos(173, { session: "fail", target: "pass" });
+  for (const c of [
+    `WT=${a.t.cwd}; cd $WT && gh issue edit 173 ${FLIP}`,
+    `cd $(git rev-parse --show-toplevel) && gh issue edit 173 ${FLIP}`,
+    `cd /no/such/dir; gh issue edit 173 ${FLIP}`,
+    `(cd ../target && git status -s) && gh issue edit 173 ${FLIP}`,
+    `X=$(cd ../target && pwd) && gh issue edit 173 ${FLIP}`,
+  ]) {
+    const r = gate(a.s.cwd, c);
+    assert.strictEqual(r.code, 2, `${c}: ${r.err}`);
+    assert.match(r.err, /P1 has no verification/, c);
+  }
+  assert.match(gate(a.s.cwd, `cd /no/such/dir; gh issue edit 173 ${FLIP}`).err, /can't resolve `cd/);
+});
+
+test("#27 witness fix 3: wrapped gh is gated, and anything the old regex caught but the parser can't read gates the cwd", () => {
+  const a = twoRepos(174, { session: "fail", target: "none" });
+  const gh = spawnSync("sh", ["-c", "command -v gh || echo /opt/homebrew/bin/gh"], { encoding: "utf8" }).stdout.trim();
+  for (const c of [
+    `${gh} issue edit 174 ${FLIP}`,
+    `timeout 60 gh issue edit 174 ${FLIP}`,
+    `command gh issue edit 174 ${FLIP}`,
+    `env -u FOO gh issue edit 174 ${FLIP}`,
+    `echo 174 | xargs -I{} gh issue edit {} ${FLIP}`,
+    `echo "gh issue edit 174 ${FLIP}"`,
+  ]) assert.strictEqual(gate(a.s.cwd, c).code, 2, c);
+  assert.match(gate(a.s.cwd, `echo "gh issue edit 174 ${FLIP}"`).err, /couldn't read/);
+});
+
+test("#27 witness fix 4: git -C after a cd is read from that dir", () => {
+  const a = twoRepos(175, { session: "fail", target: "pass" });
+  const r = gate(a.s.cwd, `cd ${a.t.cwd} && git -C . status && gh issue edit 175 ${FLIP}`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.doesNotMatch(r.err, /git -C/);
+});
+
+test("#27 witness fix 5: GH_REPO (prefix, export, or the hook's env) names the repo", () => {
+  const a = twoRepos(176, { session: "none", target: "fail" });
+  for (const [c, env] of [
+    [`GH_REPO=o/target gh issue edit 176 ${FLIP}`, {}],
+    [`export GH_REPO=o/target; gh issue edit 176 ${FLIP}`, {}],
+    [`gh issue edit 176 ${FLIP}`, { GH_REPO: "o/target" }],
+  ]) {
+    const r = gate(a.s.cwd, c, env);
+    assert.strictEqual(r.code, 2, `${c} ${JSON.stringify(env)}: ${r.err}`);
+    assert.match(r.err, /P1 has no verification/);
+  }
+});

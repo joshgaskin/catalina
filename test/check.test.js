@@ -324,9 +324,9 @@ test("#27 AC8: a colon-separated premortem still needs its verification line, an
 
 test("#27 AC9: a P-line the parser can't read fails with the expected format", () => {
   const t = require("../lib/tracking");
-  const pm = t.premortem("## Premortem\n- **P1 Fine** — x\n- P2 Callers broke — early sign: x\n- **P3 Unclosed — early sign: y\n  - P4 a sub-bullet is prose\n");
+  const pm = t.premortem("## Premortem\n- **P1 Fine** — x\n- P2 Callers broke — early sign: x\n- **P3 Unclosed — early sign: y\n  - P4 an ID-led sub-bullet\n");
   assert.deepStrictEqual(pm.ids, ["P1"]);
-  assert.deepStrictEqual(pm.unread, ["- P2 Callers broke — early sign: x", "- **P3 Unclosed — early sign: y"]);
+  assert.deepStrictEqual(pm.unread, ["- P2 Callers broke — early sign: x", "- **P3 Unclosed — early sign: y", "- P4 an ID-led sub-bullet"]);
   const swallow = t.premortem("## Premortem\n- **P1 Unclosed — x\n- **P2 Fine** — y\n\n- **P3 Also unclosed\n\nsee **P4** below\n");
   assert.deepStrictEqual([swallow.ids, swallow.unread], [["P2"], ["- **P1 Unclosed — x", "- **P3 Also unclosed"]], "a bold never runs into the next item or paragraph");
 
@@ -342,4 +342,15 @@ test("#27 AC9: a P-line the parser can't read fails with the expected format", (
   assert.ok(has(r, /premortem line "- P2 Callers broke.*isn't read as an item.*- \*\*P2 Scenario\*\* — early sign: …; mitigation: …/), r.reasons.join(" | "));
 
   assert.deepStrictEqual(t.premortem("## Premortem\nTrivial: one line\n- P2 noted\n").unread, [], "Trivial reports none");
+});
+
+test("#27 witness: an ID-led line in any list form is read or reported", () => {
+  const t = require("../lib/tracking");
+  const pm = t.premortem(
+    "## Premortem\n* **P1 Star** — x\n+ **P2 Plus** — x\n1. **P3 Numbered** — x\n2) **P4 Paren** — x\n-  **P5 Two spaces** — x\n  - **P6 Indented** — x\n\t* **P7 Tab** — x\n* P8 plain star\n  - P9 indented plain\n3. P10 numbered plain\n  - P1a is not an ID\n"
+  );
+  assert.deepStrictEqual(pm.ids, ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]);
+  assert.deepStrictEqual(pm.unread, ["* P8 plain star", "- P9 indented plain", "3. P10 numbered plain"]);
+  const wrap = t.premortem("## Premortem\n* **P1 wraps\n  on** — x\n* **P2 Unclosed — y\n* **P3 Fine** — z\n");
+  assert.deepStrictEqual([wrap.ids, wrap.unread], [["P1", "P3"], ["* **P2 Unclosed — y"]], "a bold stops at the next item of any form");
 });
