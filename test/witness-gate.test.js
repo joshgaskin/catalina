@@ -302,3 +302,23 @@ test("#27 AC12: a command built to make the gate slow (the witness's dos.js, K=2
     assert.ok(ms < 6000, `${ms} ms`);
   }
 });
+
+test("#27 fourth witness: a flip the gate can't read blocks with one plain hint", () => {
+  const a = twoRepos(190, { session: "pass", target: "pass" });
+  const r = gate(a.s.cwd, `gh issue -R o/target edit 190 ${FLIP}`);
+  assert.strictEqual(r.code, 2, r.err);
+  assert.ok(r.err.includes("catalina gate: can't read this flip; write it as `gh issue edit N -R owner/name --add-label review`"), r.err);
+  assert.strictEqual(r.err.split("catalina gate: can't read this flip").length, 2, `the hint prints once: ${r.err}`);
+  const ok = gate(a.s.cwd, `gh issue edit 190 -R o/target ${FLIP}`);
+  assert.strictEqual(ok.code, 0, ok.err);
+});
+
+test("#27 fourth witness: a label the shell builds, or one in gh's CSV quotes, is still a flip the hook sees", () => {
+  const a = twoRepos(191, { session: "pass", target: "fail" });
+  const built = gate(a.s.cwd, "gh issue edit 191 -R o/target --add-label rev${x}iew");
+  assert.strictEqual(built.code, 2, built.err);
+  assert.match(built.err, /can't read this flip/);
+  const csv = gate(a.s.cwd, `gh issue edit 191 -R o/target --add-label '"review"'`);
+  assert.strictEqual(csv.code, 2, csv.err);
+  assert.match(csv.err, /P1 has no verification/);
+});

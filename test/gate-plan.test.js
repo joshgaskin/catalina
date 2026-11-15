@@ -61,6 +61,7 @@ const FLIP = "gh issue edit 138 --add-label review";
 const at = (s) =>
   String(s)
     .replace(/@F/g, FLIP)
+    .replace(/@L/g, "review")
     .replace(/@([PHTCS])/g, (_, k) => fx[k]);
 const unescape = (s) => s.replace(/\\n/g, "\n").replace(/\\u([0-9a-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
 const run = (cmd, cwd = fx.P, env = {}) => plan(at(cmd), { cwd: at(cwd), env, home: fx.home });
@@ -84,10 +85,10 @@ for (const file of fs.readdirSync(path.join(__dirname, "fixtures", "gate-cases")
 }
 const planOf = (c) => plan(c.command, { cwd: c.cwd, env: {}, home: fx.home });
 
-test("#27 the case tables hold every hostile case: adv1, adv2, adv3, new and r2", () => {
+test("#27 the case tables hold every hostile case: adv1, adv2, adv3, new, r2 and the fourth witness's w4-*", () => {
   const files = new Set(CASES.map((c) => c.file));
-  for (const f of ["adv1.tpl", "adv2.tpl", "adv3.tpl", "new.tpl", "r2.tpl"]) assert.ok(files.has(f), f);
-  assert.ok(CASES.length >= 143 + 47 + 5, `${CASES.length} cases`);
+  for (const f of ["adv1.tpl", "adv2.tpl", "adv3.tpl", "new.tpl", "r2.tpl", "w4-reg.tpl", "w4-atk.tpl", "w4-decoy.tpl", "w4-dyn.tpl"]) assert.ok(files.has(f), f);
+  assert.ok(CASES.length >= 263, `${CASES.length} cases`);
 });
 
 test("#27 invariant: every issue main checks is checked, unless the flip names its repo explicitly or a simple script bypasses it", () => {
@@ -139,24 +140,86 @@ function realRun(shell, command, cwd) {
   return out;
 }
 
-/** The repo gh edits, as gh ranks it: an issue URL, then the last -R/--repo, then GH_REPO, then the cwd's origin. */
-function ghTarget({ pwd, ghRepo, args }) {
-  const url = args.map((a) => a.match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/issues\/\d+/)).find(Boolean);
-  if (url) return url[1].toLowerCase();
-  let r = null;
+/**
+ * What gh 2.78 edits for one logged call, as gh reads its argv (the fourth witness checked these rules against real gh):
+ * { repo, nums } or null when it isn't a review flip. repo: the first issue/pull URL's (any-case scheme, %-decoded),
+ * else the last -R/--repo ('' falls back), else GH_REPO, else the origin of the dir's repo. Numbers: `#` dropped, then
+ * Atoi (a sign and leading zeros are fine). Flags may sit between `issue` and `edit`. Labels: CSV, any case.
+ */
+function ghEdits({ pwd, ghRepo, args }) {
+  const VALUE = new Set(["--add-label", "--remove-label", "--add-assignee", "--remove-assignee", "--add-project", "--remove-project", "--milestone", "-m", "--title", "-t", "--body", "-b", "--body-file", "-F", "-R", "--repo"]);
+  const rs = [];
+  const pos = [];
+  const labels = [];
+  let sub = 0;
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "-R" || a === "--repo") r = args[++i];
-    else if (a.startsWith("--repo=")) r = a.slice(7);
-    else if (a.startsWith("-R")) r = a.slice(2).replace(/^=/, "");
+    const w = args[i];
+    let m;
+    if (w === "--") {
+      pos.push(...args.slice(i + 1));
+      break;
+    }
+    if ((m = w.match(/^(--[\w-]+)=(.*)$/s))) {
+      if (m[1] === "--repo") rs.push(m[2]);
+      if (m[1] === "--add-label") labels.push(m[2]);
+    } else if (w.startsWith("--")) {
+      if (VALUE.has(w)) {
+        const v = args[++i] ?? "";
+        if (w === "--repo") rs.push(v);
+        if (w === "--add-label") labels.push(v);
+      }
+    } else if (w.startsWith("-") && w.length > 1) {
+      const f = w.slice(0, 2);
+      if (VALUE.has(f)) {
+        let v = w.length > 2 ? w.slice(2) : args[++i] ?? "";
+        if (w.length > 2 && v.startsWith("=")) v = v.slice(1);
+        if (f === "-R") rs.push(v);
+      }
+    } else if (sub === 0) {
+      if (w !== "issue") return null;
+      sub = 1;
+    } else if (sub === 1) {
+      if (w !== "edit") return null;
+      sub = 2;
+    } else pos.push(w);
   }
-  if (r) return slugOf(r).toLowerCase();
-  if (ghRepo) return slugOf(ghRepo).toLowerCase();
-  try {
-    return slugOf(git(["remote", "get-url", "origin"], top(pwd))).toLowerCase();
-  } catch {
-    return null;
+  if (sub < 2) return null;
+  const labs = labels.flatMap((v) => v.split(",").map((x) => x.trim().replace(/^"(.*)"$/, "$1").toLowerCase()));
+  if (!labs.includes("review")) return null;
+  let urlRepo = null;
+  const nums = [];
+  for (const p of pos) {
+    let u = null;
+    try {
+      u = /^https?:\/\//i.test(p) ? new URL(p) : null;
+    } catch {}
+    if (u) {
+      const parts = decodeURIComponent(u.pathname).split("/").filter(Boolean);
+      if (parts.length < 4 || !/^(issues|pull)$/.test(parts[2]) || !/^\+?\d+$/.test(parts[3])) return null;
+      urlRepo = urlRepo || `${parts[0]}/${parts[1]}`.toLowerCase();
+      nums.push(String(Number(parts[3])));
+      continue;
+    }
+    const s = p.replace(/^#/, "");
+    if (!/^[+-]?\d+$/.test(s)) return null; // gh refuses the whole call
+    nums.push(String(Number(s)));
   }
+  const lastR = rs.length ? rs[rs.length - 1] : "";
+  let repo = urlRepo || (lastR ? slugOf(lastR) : null) || (ghRepo ? slugOf(ghRepo) : null);
+  if (!repo) repo = slugOfDir(pwd);
+  return { repo: repo && repo.toLowerCase(), nums };
+}
+
+const slugMemo = new Map();
+function slugOfDir(d) {
+  if (!slugMemo.has(d)) {
+    let s = null;
+    try {
+      s = slugOf(git(["remote", "get-url", "origin"], top(d))).toLowerCase();
+    } catch {}
+    slugMemo.set(d, s);
+  }
+  return slugMemo.get(d);
 }
 
 /** Commands the oracle never runs for real: they could change files, processes or the network outside its box. */
@@ -187,8 +250,8 @@ test("#27 oracle: a flip the gate reads as naming its repo edits that repo when 
         const call = calls.find((k) => f.numbers.every((n) => k.args.some((a) => a === n || a.endsWith(`/issues/${n}`) || Number(a) === Number(n))));
         if (!call) continue; // the flip never ran, so nothing was edited
         checked++;
-        const real = ghTarget(call);
-        if (real !== f.explicit.toLowerCase()) bad.push(`${shell} ${c.command.replace(/\n/g, "⏎")}: the gate read ${f.explicit}, gh edits ${real}`);
+        const real = (ghEdits(call) || {}).repo;
+        if (real !== slugOf(f.explicit).toLowerCase()) bad.push(`${shell} ${c.command.replace(/\n/g, "⏎")}: the gate read ${f.explicit}, gh edits ${real}`);
       }
     }
   }
@@ -222,7 +285,6 @@ test("#27 third witness D2: no cd moves the gate; the session repo is always che
     "cd -Q @C; @F",
     "cd @C > /nonexistent/x; @F",
     'cd "~/Documents/dev/projects/catalina"; @F',
-    "cd '$HOME/Documents/dev/projects/catalina'; @F",
     "cd ../catalina\r; @F",
     "cd\u000b../catalina; @F",
     "cd ../catalina; @F",
@@ -291,11 +353,7 @@ test("#27 a flip that names its repo cleanly is checked only there; anything unc
     assert.deepStrictEqual(dirsOf(p, 138), dirs, c);
   }
   for (const c of [
-    "gh -R $REPO issue edit 138 --add-label review",
-    'gh -R "$REPO" issue edit 138 --add-label review',
     "gh -R joshgaskin/hatchery issue edit 138 --add-label review # -R joshgaskin/plus2",
-    "gh -R joshgaskin/hatch* issue edit 138 --add-label review",
-    "gh -R joshgaskin/{hatchery,plus2} issue edit 138 --add-label review",
     "gh -R joshgaskin/hatchery issue edit 138 --add-label review \\\n -R joshgaskin/plus2",
     "gh -R joshgaskin/hatchery issue edit 138 --add-label review",
     "gh -R joshgaskin/hatchery issue edit 138 --add-label review 2>&1",
@@ -447,4 +505,173 @@ test("#27 no flip, no plan", () => {
     const p = run(c);
     assert.deepStrictEqual([p.flip, p.gates, p.block], [false, [], []], c);
   }
+});
+
+/**
+ * Fourth witness (7a64e8d): the argv reader dropped forms gh accepts, so an explicit -R checked the wrong repo. The rule
+ * is now closed world: a flip the gate can't read fully and literally blocks, with a hint to write it plainly.
+ */
+const UNREADABLE = /^can't read this flip/;
+const unreadable = (p) => p.block.some((b) => UNREADABLE.test(b));
+
+test("#27 fourth witness: closed world: every issue gh edits for real is checked in that repo, named unchecked, or the command blocks", () => {
+  const shells = ["bash", ...(fs.existsSync("/bin/zsh") ? ["zsh"] : [])];
+  const local = new Set([fx.P, fx.H, fx.C].map(slugOfDir));
+  let ran = 0;
+  const bad = [];
+  for (const c of CASES) {
+    if (/(^|[\s;&|])\/\S*\/gh\s/.test(c.command) || DANGER.test(c.command)) continue;
+    const p = planOf(c);
+    if (p.block.length) continue;
+    const gated = new Set(p.gates.map((g) => `${g.n}@${slugOfDir(g.dir)}`));
+    const named = new Set(p.unchecked.flatMap((u) => u.numbers.map((n) => `${n}@${String(u.repo).toLowerCase()}`)));
+    for (const shell of shells) {
+      for (const call of realRun(shell, c.command, c.cwd)) {
+        const e = ghEdits(call);
+        if (!e || !e.repo || !local.has(e.repo)) continue;
+        ran++;
+        for (const n of e.nums) {
+          const k = `${n}@${e.repo}`;
+          if (gated.has(k) || named.has(k) || (p.simple && p.bypassed.includes(n))) continue;
+          bad.push(`${shell} ${c.file} [${path.basename(c.cwd)}] ${c.command.replace(/\n/g, "⏎")}: gh edits ${k}; the gate checks [${[...gated].join(" ")}]`);
+        }
+      }
+    }
+  }
+  assert.deepStrictEqual([...new Set(bad)], []);
+  assert.ok(ran >= 100, `only ${ran} flips ran`);
+});
+
+test("#27 fourth witness AC5: reg.tpl rows 1-4 block, as main does", () => {
+  const rows = CASES.filter((c) => c.file === "w4-reg.tpl").slice(0, 4);
+  assert.strictEqual(rows.length, 4);
+  for (const c of rows) {
+    const p = planOf(c);
+    assert.ok(unreadable(p), `${c.command}: ${JSON.stringify(p.block)}`);
+  }
+});
+
+test("#27 fourth witness D1/D3: a positional that isn't a plain number or an issue/pull URL the gate fully parses blocks", () => {
+  for (const [cwd, c] of [
+    ["@H", "gh issue edit 138 https://github.com/joshgaskin/hatchery/pull/138x -R joshgaskin/catalina --add-label review"],
+    ["@H", "gh issue edit 138 HTTPS://github.com/joshgaskin/hatchery/issues/138 -R joshgaskin/catalina --add-label review"],
+    ["@H", "gh issue edit 138 Https://github.com/joshgaskin/hatchery/issues/138 -R joshgaskin/catalina --add-label review"],
+    ["@H", "gh issue edit 138 https://github.com/joshgaskin/hatchery/issues/%31%33%38 -R joshgaskin/catalina --add-label review"],
+    ["@C", "gh issue edit https://github.com/joshgaskin/%68atchery/issues/138 --add-label review"],
+    ["@C", "gh issue edit 138 https://github.com/joshgaskin/hatchery/issues/138?x=1 --add-label review"],
+    ["@C", "gh issue edit 5 +138 -R joshgaskin/hatchery --add-label review"],
+    ["@C", "gh issue edit 5 '#+0138' -R joshgaskin/hatchery --add-label review"],
+    ["@C", "gh issue edit +138 -R joshgaskin/hatchery --add-label review"],
+    ["@H", "gh issue edit 99999 +138 --add-label review"],
+    ["@C", "gh issue edit 138 '' -R joshgaskin/hatchery --add-label review"],
+    ["@C", "bash -c 'gh issue edit 5 +138 -R joshgaskin/hatchery --add-label review'"],
+    ["@C", "env -S 'gh issue edit 5 +138 -R joshgaskin/hatchery --add-label review'"],
+  ]) {
+    const p = run(c, cwd);
+    assert.ok(unreadable(p), `${c}: ${JSON.stringify(p.block)}`);
+  }
+  // Read fully: a /pull/ URL names its repo, as gh reads it; leading zeros are the same number.
+  const u = run("gh issue edit https://github.com/joshgaskin/hatchery/pull/138 -R joshgaskin/catalina --add-label review", "@C");
+  assert.deepStrictEqual([u.mode, u.block, dirsOf(u, 138)], ["explicit", [], [fx.H]]);
+  const z = run("gh issue edit 0138 -R joshgaskin/hatchery --add-label review", "@C");
+  assert.deepStrictEqual([z.mode, z.block, dirsOf(z, 138)], ["explicit", [], [fx.H]]);
+});
+
+test("#27 fourth witness D2: a flag between `issue` and `edit` blocks", () => {
+  for (const [cwd, c] of [
+    ["@C", "gh issue -R joshgaskin/hatchery edit 138 --add-label review"],
+    ["@C", "gh issue --repo=joshgaskin/hatchery edit 138 --add-label review"],
+    ["@P", "gh issue -R '' edit 138 --add-label review"],
+    ["@C", "if true; then gh issue -R joshgaskin/hatchery edit 138 --add-label review; fi"],
+  ]) {
+    const p = run(c, cwd);
+    assert.ok(unreadable(p), `${c}: ${JSON.stringify(p.block)}`);
+  }
+  assert.strictEqual(run("gh issue -R joshgaskin/hatchery list --label review").flip, false, "not an edit");
+});
+
+test("#27 fourth witness D4: gh's CSV quoting is stripped, so a quoted review label is a flip", () => {
+  for (const c of [
+    "gh issue edit 138 -R joshgaskin/hatchery --add-label '\"review\"'",
+    "gh issue edit 138 -R joshgaskin/hatchery --add-label 'bug,\"review\"'",
+    "gh issue edit 138 -R joshgaskin/hatchery --add-label='\"Review\"'",
+  ]) {
+    const p = run(c, "@C");
+    assert.deepStrictEqual([p.flip, p.mode, dirsOf(p, 138)], [true, "explicit", [fx.H]], c);
+  }
+  const h = run("gh issue edit 138 --add-label '\"review\"'", "@H");
+  assert.deepStrictEqual(dirsOf(h, 138), [fx.H]);
+});
+
+test("#27 fourth witness D5: a shell expansion in the gh argv, or a label the shell builds, blocks", () => {
+  for (const c of [
+    "N=138; gh issue edit 5 $N -R joshgaskin/hatchery --add-label review",
+    'gh issue edit 5 "$N" -R joshgaskin/hatchery --add-label review',
+    "gh issue edit 5 $(echo 138) -R joshgaskin/hatchery --add-label review",
+    "gh issue edit 5 `echo 138` -R joshgaskin/hatchery --add-label review",
+    "echo 138 | xargs gh issue edit 5 -R joshgaskin/hatchery --add-label review",
+    "gh issue edit 5 13{8,9} -R joshgaskin/hatchery --add-label review",
+    "gh issue edit 13? -R joshgaskin/hatchery --add-label review",
+    "gh -R $REPO issue edit 138 --add-label review",
+    'gh -R "$REPO" issue edit 138 --add-label review',
+    "gh -R joshgaskin/hatch* issue edit 138 --add-label review",
+    "gh -R joshgaskin/{hatchery,plus2} issue edit 138 --add-label review",
+    "gh issue edit 138 -R joshgaskin/hatchery --add-label=rev{iew,iew}",
+    "gh issue edit 138 -R joshgaskin/hatchery --add-label rev${x}iew",
+    'gh issue edit 138 --add-label "$L"',
+    "R=joshgaskin/hatchery; export GH_REPO=$R; gh issue edit 138 --add-label review",
+    "GH_REPO=$R gh issue edit 138 --add-label review",
+  ]) {
+    const p = run(c, "@C");
+    assert.strictEqual(p.flip, true, c);
+    assert.ok(unreadable(p), `${c}: ${JSON.stringify(p.block)}`);
+  }
+  // Quoted text is literal: no expansion, so the flip is read.
+  const q = run("gh issue edit 138 -R joshgaskin/hatchery --title 'a $5 fix?' --add-label review", "@C");
+  assert.deepStrictEqual([q.block, dirsOf(q, 138)], [[], [fx.H]]);
+});
+
+test("#27 fourth witness D6: a cd target the shell supplies blocks, unless every flip names its repo", () => {
+  for (const c of [
+    "WT=@H; cd $WT && gh issue edit 138 --add-label review",
+    "d=../hatchery; cd $d && gh issue edit 138 --add-label review",
+    'cd "$WT" && gh issue edit 138 --add-label review',
+    "cd ../hatch*ry && gh issue edit 138 --add-label review",
+    'cd "$(echo ../hatchery)" && gh issue edit 138 --add-label review',
+    "cd ../{hatchery,x} && gh issue edit 138 --add-label review",
+    "pushd $D && gh issue edit 138 --add-label review",
+    "env -C $D gh issue edit 138 --add-label review",
+    "cd ~- && gh issue edit 138 --add-label review",
+    "cd $HOME/x && gh issue edit 138 --add-label review",
+    "cd '$HOME/Documents/dev/projects/catalina'; gh issue edit 138 --add-label review",
+  ]) {
+    const p = run(c, "@C");
+    assert.ok(unreadable(p), `${c}: ${JSON.stringify(p.block)}`);
+    assert.ok(has(p, 138, fx.C), `the session repo is still checked: ${c}`);
+  }
+  const e = run("cd $WT && gh -R joshgaskin/hatchery issue edit 138 --add-label review", "@C");
+  assert.deepStrictEqual([e.mode, e.block, dirsOf(e, 138)], ["explicit", [], [fx.H]], "an explicit flip doesn't depend on the cd");
+  const g = run("GIT_DIR=@H/.git gh issue edit 138 --add-label review", "@C");
+  assert.ok(has(g, 138, fx.H) && has(g, 138, fx.C), `GIT_DIR's repo joins the union: ${JSON.stringify(g.gates)}`);
+});
+
+test("#27 fourth witness: the git memo is keyed by real path: one git call per dir", () => {
+  const cp = require("child_process");
+  const orig = cp.execFileSync;
+  const calls = [];
+  cp.execFileSync = function (file, args, opts) {
+    if (file === "git" && opts && opts.cwd) calls.push(`${fs.realpathSync(opts.cwd)} ${args.join(" ")}`);
+    return orig.apply(this, arguments);
+  };
+  const id = require.resolve("../hooks/lib/target-repo");
+  delete require.cache[id];
+  try {
+    const fresh = require("../hooks/lib/target-repo");
+    fresh.plan(`cd ${fx.S}/clink && cd ${fx.C} && ${FLIP}`, { cwd: fx.P, env: {}, home: fx.home });
+  } finally {
+    cp.execFileSync = orig;
+    delete require.cache[id];
+  }
+  const twice = calls.filter((d, i) => calls.indexOf(d) !== i);
+  assert.deepStrictEqual(twice, [], calls.join("\n"));
 });

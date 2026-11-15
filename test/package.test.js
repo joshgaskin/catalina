@@ -213,3 +213,11 @@ test("AC16: a core command takes the project overlay at its marker; without one 
   assert.strictEqual(without, core.replace(/\n!`cat \.claude\/catalina\/spec\.local\.md 2>\/dev\/null \|\| true`/, "\n"));
   for (const c of ["spec", "witness", "groom", "capture", "probe"]) assert.match(read(`commands/${c}.md`), new RegExp(`<!-- overlay -->\\n!\`cat \\.claude/catalina/${c}\\.local\\.md`), c);
 });
+
+test("#27 bare `node --test` runs clean: the helpers under test/helpers/ aren't test files that fail", () => {
+  const env = { ...process.env };
+  delete env.CATALINA_GH_STATE;
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync("node", ["--test", "--test-reporter=tap", "test/helpers/*.js"], { cwd: ROOT, encoding: "utf8", env, timeout: 60000 });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+});
