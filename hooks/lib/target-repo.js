@@ -5,12 +5,18 @@
  * modelled safely (quoting, CDPATH, symlinks, `set -P`, `disable cd`, a cd whose redirect fails …), so the gate doesn't
  * try: a cd never moves it.
  *
+ * Closed world (fourth witness): the gate stops accidental or sloppy flips by agents, not deliberate obfuscation (that
+ * is the same class as CATALINA_WITNESS_ALLOW). A flip it can't read fully and literally blocks (UNREADABLE): a
+ * positional that isn't a plain number or an issue/pull URL it fully parses, a flag between `issue` and `edit`, any
+ * shell expansion in gh's argv (a variable, a substitution, a glob, a brace, xargs), a label the shell builds, or (for a
+ * flip that doesn't name its repo) a cd target the shell supplies.
+ *
  * - A flip whose own gh argv names its repo, read the way gh ranks them (an issue URL, then the last -R/--repo), and
  *   that parses cleanly (plain ASCII words, balanced plain quotes, no expansion, no glob, gh run directly at the top
  *   level, and nothing in the text that could redefine gh or set GH_REPO) is checked in that repo's local checkouts only.
  * - Every other flip is checked in the union: the session repo and every repo the command's text mentions (a cd, pushd
- *   or `env -C` dir; a -R, GH_REPO or issue-URL repo), and blocks if any check fails. So it is never looser than the
- *   pre-#27 gate (legacyFlip, in the session repo).
+ *   or `env -C` dir, GIT_DIR; a -R, GH_REPO or issue-URL repo), and blocks if any check fails. So it is never looser
+ *   than the pre-#27 gate (legacyFlip, in the session repo).
  *
  * plan(command, {cwd, env, home}) is what the hook runs: it returns the issues to check and where.
  * parseFlips(command) is pure: a quote-aware read of the command into simple commands, walked in order.
@@ -24,6 +30,10 @@ const { execFileSync } = require("child_process");
 const DYN = "\u0000";
 /** A word holding an expansion the parser can't do (a variable, `$(…)`, backticks). */
 const DYNAMIC = /[$`\u0000]/;
+/** A word (quotes already removed) that may hold an expansion, a glob or a brace: read conservatively. */
+const EXPANDS = /[$`\u0000*?[\]{}]/;
+/** What the hook says once when a flip can't be read. */
+const UNREADABLE = "catalina gate: can't read this flip; write it as `gh issue edit N -R owner/name --add-label review`";
 
 /**
  * Split into simple commands of words, quote-aware, in order: [[word…] | {open} | {close}…]. Separators: && || ; | &
@@ -192,7 +202,8 @@ const STRICT_R = [
   new RegExp(`^git@${PART}:(${PART})/(${PART}?)(?:\\.git)?$`),
   new RegExp(`^https?://${PART}/(${PART})/(${PART}?)(?:\\.git)?/?$`),
 ];
-const STRICT_URL = new RegExp(`^https?://${PART}/(${PART})/(${PART})/issues/(\\d+)/?(?:#[\\w-]*)?$`);
+/** An issue or pull URL the gate reads fully: lower-case scheme, plain parts, no %-encoding, no query. */
+const STRICT_URL = new RegExp(`^https?://${PART}/(${PART})/(${PART})/(?:issues|pull)/(\\d+)/?(?:#[\\w-]*)?$`);
 const okParts = (o, n) => o && n && ![o, n].some((x) => x === "." || x === "..");
 
 /** owner/name from a -R value only when it is unambiguous: one of gh's plain forms, no `.`/`..` parts. */
@@ -205,26 +216,51 @@ function strictSlug(v) {
   return null;
 }
 
-const ISSUE_URL = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/issues\/(\d+)\b/;
 /** An issue number as gh reads it: `#` and leading zeros dropped. */
 const num = (w) => String(w).replace(/^#/, "").replace(/^0+(?=\d)/, "");
 
+/** A --add-label value as gh reads it, a CSV row: quotes stripped (`""` is a quote), each field trimmed, lower case. */
+function csv(v) {
+  const out = [];
+  let cur = "";
+  let q = false;
+  const t = String(v ?? "");
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) {
+      if (c !== '"') cur += c;
+      else if (t[i + 1] === '"') (cur += '"'), i++;
+      else q = false;
+    } else if (c === '"') q = true;
+    else if (c === ",") out.push(cur), (cur = "");
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim().toLowerCase());
+}
+
 /**
- * The arguments of `gh issue edit` from words[from]: { numbers, bare, urls: [{slug, strict}], rs: [raw -R values],
- * labels (lower case) }.
+ * The arguments of `gh issue edit` from words[from]: { numbers, bare, urls: [{slug}], rs: [raw -R values], labels
+ * (lower case, CSV read), dynLabel (an --add-label value with an expansion, a glob or a brace), odd: positionals that
+ * aren't a plain number or a strict issue/pull URL }.
  */
 function editArgs(words, from, rs = []) {
   const numbers = [];
   const labels = [];
   const urls = [];
+  const odd = [];
   let bare = 0;
+  let dynLabel = false;
   for (let j = from; j < words.length; j++) {
     const w = words[j];
     const eq = w.match(/^(--?[\w-]+)=(.*)$/s);
     const flag = eq ? eq[1] : w;
     if (VALUE_FLAGS.has(flag)) {
       const v = eq ? eq[2] : words[++j];
-      if (flag === "--add-label") labels.push(...String(v ?? "").split(",").map((x) => x.trim().toLowerCase()));
+      if (flag === "--add-label") {
+        labels.push(...csv(v));
+        if (EXPANDS.test(String(v ?? ""))) dynLabel = true;
+      }
       if (flag === "-R" || flag === "--repo") rs.push(v ?? "");
       continue;
     }
@@ -233,23 +269,32 @@ function editArgs(words, from, rs = []) {
       continue;
     }
     if (w.startsWith("-")) continue;
-    const url = w.match(ISSUE_URL);
-    if (url) {
-      const strict = w.match(STRICT_URL);
-      urls.push({ slug: url[1], strict: !!(strict && okParts(strict[1], strict[2])) });
-      numbers.push(num(url[2]));
+    const url = w.match(STRICT_URL);
+    if (url && okParts(url[1], url[2])) {
+      urls.push({ slug: `${url[1]}/${url[2]}` });
+      numbers.push(num(url[3]));
     } else if (/^#?\d+$/.test(w)) {
       numbers.push(num(w));
       bare++;
-    }
+    } else odd.push(w);
   }
-  return { numbers, bare, urls, rs, labels };
+  return { numbers, bare, urls, rs, labels, dynLabel, odd };
 }
 
+/** Why an editArgs read can't be trusted: [why…] (empty when it reads fully). */
+const oddReasons = (a, between) => [
+  ...(between ? ["a flag sits between `issue` and `edit`"] : []),
+  ...a.odd.map((w) => `\`${show(w)}\` isn't a plain issue number or an issue URL`),
+  ...(a.dynLabel ? ["the label is built by the shell"] : []),
+];
+const show = (w) => String(w).replace(/\u0000/g, "$(…)");
+
 /**
- * A gh command's flip, or null: { numbers, repo, named } when it is `gh [-R x] issue edit … --add-label …review…`.
- * repo is what gh edits as gh ranks it: an issue URL, then the last -R/--repo (GH_REPO is the caller's). named is that
- * repo when the argv names it unambiguously: one strict issue-URL repo and no bare numbers, or else a strict last -R.
+ * A gh command's flip, or null: { numbers, repo, named, unreadable } when it is `gh [-R x] issue edit … --add-label …`
+ * with review among the labels or a label the shell builds. repo is what gh edits as gh ranks it: an issue URL, then
+ * the last -R/--repo (GH_REPO is the caller's). unreadable lists why the argv can't be read fully (a flag between
+ * `issue` and `edit`, an odd positional, a built label). named is the repo when the argv names it unambiguously and
+ * reads fully: one issue-URL repo and no bare numbers, or else a strict last -R.
  */
 function readGh(words) {
   let i = 1;
@@ -262,17 +307,27 @@ function readGh(words) {
     else if (/^-R./.test(w)) rs.push(w.slice(2));
     i++;
   }
-  if (words[i] !== "issue" || words[i + 1] !== "edit") return null;
-  const a = editArgs(words, i + 2, rs);
-  if (!a.labels.includes("review")) return null;
+  if (words[i] !== "issue") return null;
+  let e = i + 1;
+  if (words[e] !== "edit") {
+    // gh takes flags between `issue` and `edit` (`gh issue -R x edit N`): a form the gate doesn't read.
+    if (!String(words[e] ?? "").startsWith("-")) return null;
+    e = words.indexOf("edit", e);
+    if (e < 0) return null;
+  }
+  const between = e > i + 1;
+  const a = editArgs([...words.slice(0, e), ...words.slice(e + 1)], i + 1, rs);
+  if (!a.labels.includes("review") && !a.dynLabel) return null;
+  const unreadable = oddReasons(a, between);
   const lastR = a.rs.length ? a.rs[a.rs.length - 1] : null;
   const repo = a.urls.length ? a.urls[0].slug : lastR !== null ? slugOf(lastR) : null;
   let named = null;
-  if (a.urls.length) {
+  if (unreadable.length) named = null;
+  else if (a.urls.length) {
     const slugs = new Set(a.urls.map((u) => u.slug.toLowerCase()));
-    if (!a.bare && slugs.size === 1 && a.urls.every((u) => u.strict)) named = a.urls[0].slug;
+    if (!a.bare && slugs.size === 1) named = a.urls[0].slug;
   } else if (lastR !== null) named = strictSlug(lastR);
-  return { numbers: a.numbers, repo, named };
+  return { numbers: a.numbers, repo, named, unreadable };
 }
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
@@ -288,10 +343,11 @@ const isTarget = (w, builtin) => {
   return b === "gh" || b === "env" || b === "eval" || SHELLS.has(b) || (builtin && STATE.has(b));
 };
 
-/** Strip leading assignments, `env` and wrappers: { words, assigns, chdir } (chdir from `env -C`). */
+/** Strip leading assignments, `env` and wrappers: { words, assigns, chdir, fed } (chdir from `env -C`; fed: xargs). */
 function unwrap(cmd) {
   const assigns = [];
   let chdir = null;
+  let fed = false;
   let words = cmd;
   for (let guard = 0; guard < 10 && words.length; guard++) {
     let i = 0;
@@ -323,14 +379,15 @@ function unwrap(cmd) {
       continue;
     }
     if (WRAPPERS.has(head)) {
+      if (head === "xargs") fed = true;
       const j = words.findIndex((w, k) => k > 0 && isTarget(w, head === "command" || head === "builtin"));
-      if (j < 0) return { words: [], assigns, chdir };
+      if (j < 0) return { words: [], assigns, chdir, fed };
       words = words.slice(j);
       continue;
     }
     break;
   }
-  return { words, assigns, chdir };
+  return { words, assigns, chdir, fed };
 }
 
 /** The parse state a command starts in: the hook's own env can name the repo (GH_REPO) for gh too. */
@@ -395,12 +452,34 @@ function cleanSpan(t) {
 }
 
 /**
+ * True when the shell would expand part of this source text: outside quotes a $, backtick, glob or brace char; inside
+ * double quotes a $ or backtick. Backslash-escaped chars are literal; single quotes are literal.
+ */
+function expands(t) {
+  let q = null;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q === "'") {
+      if (c === "'") q = null;
+    } else if (c === "\\") i++;
+    else if (q === '"') {
+      if (c === '"') q = null;
+      else if (c === "$" || c === "`") return true;
+    } else if (c === "'" || c === '"') q = c;
+    else if ("$`*?[{".includes(c)) return true;
+  }
+  return false;
+}
+
+/**
  * Every review flip in a command: { numbers, repo, explicit, cds, allow, gitC }. repo is what gh would edit as parsed
  * (an issue URL, the last -R, then GH_REPO); explicit is the repo the flip's own argv names when the gate can trust it
  * (readGh's named repo, gh run directly at the top level of the command outside any subshell, its source cleanSpan, and
  * nothing in the text matching NOT_EXPLICIT), else null. cds are the `cd` arguments before it (kept only for the
  * reader; they never move the gate); allow is the bypass as a prefix, through `env`, or from an earlier `export`; gitC
- * lists `git -C` dirs with the cds they ran after. A `bash -c '<script>'` and `eval` are read as well, never explicit.
+ * lists `git -C` dirs with the cds they ran after; unreadable lists why the gate can't read the flip fully (readGh's
+ * reasons, xargs feeding it, an expansion in its source, a GH_REPO the shell supplies): such a flip is never explicit.
+ * A `bash -c '<script>'` and `eval` are read as well, never explicit.
  */
 function parseFlips(command, ctx = initialCtx(), depth = 0) {
   const flips = [];
@@ -418,7 +497,7 @@ function parseFlips(command, ctx = initialCtx(), depth = 0) {
       if (sc) Object.assign(ctx, { exported: sc.exported, ghRepo: sc.ghRepo }), (cds.length = sc.n);
       continue;
     }
-    const { words, assigns, chdir } = unwrap(item);
+    const { words, assigns, chdir, fed } = unwrap(item);
     const setsAllow = assigns.some((a) => a.startsWith("CATALINA_WITNESS_ALLOW="));
     const allow = assigns.includes(ALLOW) || (ctx.exported && !setsAllow);
     const repoAssign = assigns.filter((a) => a.startsWith("GH_REPO=")).pop();
@@ -444,8 +523,14 @@ function parseFlips(command, ctx = initialCtx(), depth = 0) {
         let k = 0;
         while (k < item.length && ASSIGN.test(item[k])) k++;
         const direct = item[k] === "gh" && !item.some((w) => DYNAMIC.test(w));
-        const clean = trusted && direct && !scopes.length && item.span && cleanSpan(text.slice(item.span[0], item.span[1]));
-        flips.push({ numbers: flip.numbers, repo: flip.repo || ghRepo || null, explicit: clean ? flip.named : null, cds: here, allow, gitC: [...gitC] });
+        const span = item.span ? text.slice(item.span[0], item.span[1]) : "";
+        const repo = flip.repo || ghRepo || null;
+        const unreadable = [...flip.unreadable];
+        if (fed) unreadable.push("its arguments come from xargs");
+        if (expands(span) || item.some((w) => w.includes(DYN))) unreadable.push("the shell expands part of it");
+        else if (repo && DYNAMIC.test(repo)) unreadable.push("its repo (-R or GH_REPO) comes from the shell");
+        const clean = trusted && direct && !scopes.length && item.span && cleanSpan(span) && !unreadable.length;
+        flips.push({ numbers: flip.numbers, repo, explicit: clean ? flip.named : null, cds: here, allow, gitC: [...gitC], unreadable });
       }
     } else if (head === "eval" && depth < 3) {
       const inner = assigns.length ? { ...ctx, exported: allow, ghRepo } : ctx; // same shell: its cds stay shared
@@ -482,7 +567,11 @@ function remotesOf(config) {
 function dirCache() {
   const memo = new Map();
   return (dir) => {
-    if (memo.has(dir)) return memo.get(dir);
+    let key = dir;
+    try {
+      key = fs.realpathSync(dir);
+    } catch {}
+    if (memo.has(key)) return memo.get(key);
     let info = null;
     if (isDir(dir)) {
       try {
@@ -497,26 +586,27 @@ function dirCache() {
         if (top && common) info = { top, main: path.basename(common) === ".git" ? path.dirname(common) : top, remotes: remotesOf(path.join(common, "config")) };
       } catch {}
     }
-    memo.set(dir, info);
+    memo.set(key, info);
     return info;
   };
 }
 
 /** Every local checkout of slug near the dirs in from: each one's repo, its main checkout, a sibling or child named for the repo. */
 function checkouts(slug, from, info) {
-  const want = slug.toLowerCase();
-  const name = slug.split("/")[1];
+  // `-R owner/name.git`: try the name with and without .git.
+  const wants = [...new Set([slug.toLowerCase(), slug.toLowerCase().replace(/\.git$/, "")])];
+  const names = [...new Set([slug.split("/")[1], slug.split("/")[1].replace(/\.git$/i, "")])];
   const found = [];
   const looked = [];
   for (const here of from) {
     const i = info(here);
     const base = i ? i.main : here;
-    for (const c of [i && i.top, i && i.main, path.join(path.dirname(base), name), path.join(here, name)]) {
+    for (const c of [i && i.top, i && i.main, ...names.flatMap((name) => [path.join(path.dirname(base), name), path.join(here, name)])]) {
       if (!c || looked.includes(c)) continue;
       looked.push(c);
       if (c !== (i && i.top) && c !== (i && i.main) && !fs.existsSync(path.join(c, ".git"))) continue;
       const t = info(c);
-      if (t && t.remotes.some((u) => u.endsWith(`/${want}`) || u.endsWith(`:${want}`)) && !found.includes(t.top)) found.push(t.top);
+      if (t && t.remotes.some((u) => wants.some((want) => u.endsWith(`/${want}`) || u.endsWith(`:${want}`))) && !found.includes(t.top)) found.push(t.top);
     }
   }
   return { found, looked };
@@ -532,16 +622,18 @@ function legacyFlip(command) {
 }
 
 /**
- * Every `gh [-R x] issue edit … --add-label review` in the raw text, wherever it sits (a quote, a heredoc, after `then`),
- * read from where it starts to the end of its line.
+ * Every `gh [-R x] issue [flags] edit … --add-label review` (or a label the shell builds) in the raw text, wherever it
+ * sits (a quote, a heredoc, after `then`), read from where it starts to the end of its line: editArgs' read plus
+ * unreadable, why it can't be read fully.
  */
 function rawFlips(command) {
   const res = [];
-  for (const m of String(command).matchAll(/\bgh(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?\s+issue\s+edit\b/gi)) {
+  const RAW = /\bgh(?:\s+(?:-R|--repo)(?:=|\s+)\S+|\s+-R\S+)?\s+issue((?:\s+-\S*(?:\s+[^\s-]\S*)?){0,6}?)\s+edit\b/gi;
+  for (const m of String(command).matchAll(RAW)) {
     const rest = command.slice(m.index + m[0].length).split("\n")[0];
     const words = simpleCommands(rest).find(Array.isArray) || [];
     const a = editArgs(words, 0);
-    if (a.labels.includes("review")) res.push(a);
+    if (a.labels.includes("review") || a.dynLabel) res.push({ ...a, unreadable: oddReasons(a, !!m[1]) });
   }
   return res;
 }
@@ -599,10 +691,11 @@ const CD_HEAD = /(?:^|[\s;&|(){}`'"])(?:cd|pushd|chdir)(?=[\s;&|)}`'"]|$)/g;
 const RAW_CHDIR = /\benv\b[^;&|\n]*?\s(?:-C|--chdir)(?:=|\s+)("[^"\n]*"|'[^'\n]*'|[^\s;&|()]+)/g;
 const RAW_HOME = /(?:^|[\s;&|(])(?:export\s+)?HOME=("[^"\n]*"|'[^'\n]*'|[^\s;&|()]+)/g;
 const RAW_CDPATH = /\bCDPATH=("[^"\n]*"|'[^'\n]*'|[^\s;&|()]+)/g;
+const RAW_GITDIR = /\bGIT_(?:DIR|WORK_TREE)=("[^"\n]*"|'[^'\n]*'|[^\s;&|()]+)/g;
 const RAW_SLUGS = [
   /(?:^|\s)(?:-R|--repo)(?:=|\s+)?("[^"\n]*"|'[^'\n]*'|[^\s;&|()'"]+)/g,
   /\bGH_REPO=("[^"\n]*"|'[^'\n]*'|[^\s;&|()'"]+)/g,
-  /https?:\/\/[^\s/'"]+\/([^\s/'"]+\/[^\s/'"]+)\/issues\/\d+/g,
+  /https?:\/\/[^\s/'"]+\/([^\s/'"]+\/[^\s/'"]+)\/(?:issues|pull)\/\d+/g,
 ];
 const SPACE = /[\s\u00a0\u0085\u180e\u200b-\u200d\u2028\u2029\u202f\u205f\u3000\ufeff]+/;
 
@@ -633,11 +726,14 @@ function dirArgs(s) {
     const dd = words.indexOf("--");
     const plain = dd >= 0 ? words.slice(dd + 1) : words.filter((w) => !w.startsWith("-") || w === "-");
     const dirs = plain.filter((w) => w !== "-");
-    if (!dirs.length) add({ dir: "~" });
+    if (plain.includes("-")) add({ dir: "-" }); // OLDPWD: the shell supplies it
+    else if (!dirs.length) add({ dir: "~" });
     for (const w of dirs) add({ dir: w });
     if (dirs.length === 2) add({ from: dirs[0], to: dirs[1] });
   }
   for (const m of s.matchAll(RAW_CHDIR)) if (args.length <= MAX.args) add({ dir: unquote(m[1]) });
+  // GIT_DIR / GIT_WORK_TREE aim the git gh runs: their repo joins the union (a .git dir as its work tree).
+  for (const m of s.matchAll(RAW_GITDIR)) if (args.length <= MAX.args) add({ dir: unquote(m[1]).replace(/\/\.git\/?$/, "") || "/" });
   return args;
 }
 
@@ -666,8 +762,12 @@ function physical(base, rel) {
   return cur;
 }
 
+/** A cd target the shell supplies: an expansion, a glob or brace, `-` or `~-` (OLDPWD), `~user`. `~` and `~+` are read. */
+const shellDir = (d) => d !== undefined && (EXPANDS.test(d) || d === "-" || /^~(?![/+]|$)/.test(d) || /^~\+[^/]/.test(d));
+
 /**
- * Every dir and repo a command's text could point gh at: { dirs, unchecked: [{repo, why}] } or { over } past a cap. dirs
+ * Every dir and repo a command's text could point gh at: { dirs, unchecked: [{repo, why}], dynamic: [target…] } or
+ * { over } past a cap. dynamic lists the cd targets the shell supplies (shellDir; a HOME or CDPATH it supplies). dirs
  * holds the session repo, the cwd, and the repo (or dir) of each cd, pushd and `env -C` target, resolved from the cwd
  * and from each other, logically and physically, also through CDPATH, with ~ and $HOME as any home the text sets; then
  * every local checkout of each -R, GH_REPO and issue-URL repo the text or env names.
@@ -679,6 +779,9 @@ function reachable(s, { cwd, home, env, flips, info }) {
   for (const v of [env.CDPATH, ...[...s.matchAll(RAW_CDPATH)].map((m) => unquote(m[1]))]) for (const e of String(v || "").split(":")) if (e) cdpath.add(e);
   const args = dirArgs(s);
   if (args.over || args.length > MAX.args) return { over: `more than ${MAX.args} cd targets, ${MAX.cdWords} cd words or ${MAX.cdRead / 1e6} MB of cd text in one command` };
+  const dynamic = [];
+  for (const a of args) for (const d of [a.dir, a.from, a.to]) if (shellDir(d) && !dynamic.includes(d)) dynamic.push(d);
+  if (args.length) for (const v of [...homes, ...cdpath]) if (v !== home && EXPANDS.test(v) && !dynamic.includes(v)) dynamic.push(v);
   const expand = (a, base) => {
     const out = [];
     if (/^~-/.test(a)) return out;
@@ -740,7 +843,7 @@ function reachable(s, { cwd, home, env, flips, info }) {
     if (!found.length) unchecked.push({ repo: slug, why: `no local checkout of ${slug} found (looked at ${looked.join(", ")})` });
   }
   if (dirs.length > MAX.dirs) return { over: `more than ${MAX.dirs} repos to check for one command` };
-  return { dirs, unchecked };
+  return { dirs, unchecked, dynamic };
 }
 
 const NO_NUMBER = "this looks like a flip to `review` but the issue number couldn't be parsed";
@@ -755,14 +858,16 @@ const HINT = "to flip an issue in another repo, run `gh issue edit N -R owner/na
  *   flips: parseFlips' read, gates: [{n, dir}] to check (block if any fails), block: [why] to block outright,
  *   unchecked: [{numbers, repo, why}] named repos with no local checkout, bypassed: issue numbers the text bypass let
  *   through, notes: what to tell the user, hint: say how to name a repo when a union check blocks,
+ *   unreadable: a flip the gate can't read fully blocks (say UNREADABLE once),
  * }
  * The backstop counts per flip: a number the old regex or a raw scan sees that the parser didn't is checked in the union.
+ * An unreadable flip still has its numbers checked in the union, so the evidence reasons print beside the block.
  */
 function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = {}) {
   const s = String(command);
   const old = legacyFlip(s);
   const flips = parseFlips(s, initialCtx(env));
-  const out = { flip: false, mode: "explicit", simple: true, reasons: [], flips, gates: [], block: [], unchecked: [], bypassed: [], notes: [], hint: false };
+  const out = { flip: false, mode: "explicit", simple: true, reasons: [], flips, gates: [], block: [], unchecked: [], bypassed: [], notes: [], hint: false, unreadable: false };
   const raw = rawFlips(s);
   if (!flips.length && !old && !raw.length) return out;
   out.flip = true;
@@ -771,6 +876,10 @@ function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = 
     if (!out.gates.some((g) => g.n === n && g.dir === dir)) out.gates.push({ n, dir });
   };
   const blockOnce = (why) => out.block.includes(why) || out.block.push(why);
+  const cantRead = (why) => {
+    out.unreadable = true;
+    blockOnce(`can't read this flip: ${why}`);
+  };
   const reasons = new Set();
   shape(s, reasons);
   const parsed = new Set(flips.flatMap((f) => f.numbers));
@@ -788,8 +897,9 @@ function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = 
       out.bypassed.push(...(f.numbers.length ? f.numbers : ["?"]));
       continue;
     }
+    for (const why of f.unreadable) cantRead(why);
     if (!f.numbers.length) {
-      blockOnce(NO_NUMBER);
+      if (!f.unreadable.length) blockOnce(NO_NUMBER);
       continue;
     }
     if (f.explicit && !noExplicit) named.push(f);
@@ -797,7 +907,8 @@ function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = 
   }
   if (unread) {
     for (const n of seen) union.add(n);
-    if ((old && old.n === null) || raw.some((r) => !r.numbers.length)) blockOnce(NO_NUMBER);
+    for (const r of raw) for (const why of r.unreadable) cantRead(why);
+    if ((old && old.n === null && !out.unreadable) || raw.some((r) => !r.numbers.length && !r.unreadable.length)) blockOnce(NO_NUMBER);
   }
   // One flip in the union puts every flip there: a mixed command is read as a whole.
   if (union.size) for (const f of named.splice(0)) for (const n of f.numbers) union.add(n);
@@ -822,6 +933,7 @@ function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = 
       return out;
     }
     dirs = r.dirs;
+    for (const d of r.dynamic) cantRead(`the cd target \`${show(d)}\` is supplied by the shell`);
     for (const n of union) for (const d of dirs) gate(n, d);
     for (const u of r.unchecked) out.unchecked.push({ numbers: [...union], ...u });
     if (dirs.length > 1 || reasons.size) {
@@ -846,4 +958,4 @@ function plan(command, { cwd = process.cwd(), env = {}, home = os.homedir() } = 
   return out;
 }
 
-module.exports = { plan, parseFlips, simpleCommands, initialCtx, legacyFlip, slugOf, HINT };
+module.exports = { plan, parseFlips, simpleCommands, initialCtx, legacyFlip, slugOf, HINT, UNREADABLE };

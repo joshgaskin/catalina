@@ -3,6 +3,8 @@
 //   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [] } (issue number = index + 1)
 const fs = require("fs");
 const file = process.env.CATALINA_GH_STATE;
+// Bare `node --test` runs every .js under test/, this one included: as a test file it has nothing to do.
+if (!file && process.env.NODE_TEST_CONTEXT) process.exit(0);
 const state = JSON.parse(fs.readFileSync(file, "utf8"));
 const args = process.argv.slice(2);
 const val = (f) => args[args.indexOf(f) + 1];

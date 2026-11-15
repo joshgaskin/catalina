@@ -542,13 +542,15 @@ test("#27 fourth witness: closed world: every issue gh edits for real is checked
   assert.ok(ran >= 100, `only ${ran} flips ran`);
 });
 
-test("#27 fourth witness AC5: reg.tpl rows 1-4 block, as main does", () => {
+test("#27 fourth witness AC5: reg.tpl rows 1-4 block, as main does: unreadable, or checked in hatchery (where 138 fails)", () => {
   const rows = CASES.filter((c) => c.file === "w4-reg.tpl").slice(0, 4);
   assert.strictEqual(rows.length, 4);
   for (const c of rows) {
     const p = planOf(c);
-    assert.ok(unreadable(p), `${c.command}: ${JSON.stringify(p.block)}`);
+    assert.ok(unreadable(p) || has(p, 138, fx.H), `${c.command}: ${JSON.stringify({ block: p.block, gates: p.gates })}`);
   }
+  // Row 1's /pull/ URL is read now: a bare number beside it puts the flip in the union, hatchery included.
+  assert.strictEqual(unreadable(planOf(rows[0])), false);
 });
 
 test("#27 fourth witness D1/D3: a positional that isn't a plain number or an issue/pull URL the gate fully parses blocks", () => {
@@ -626,9 +628,9 @@ test("#27 fourth witness D5: a shell expansion in the gh argv, or a label the sh
     assert.strictEqual(p.flip, true, c);
     assert.ok(unreadable(p), `${c}: ${JSON.stringify(p.block)}`);
   }
-  // Quoted text is literal: no expansion, so the flip is read.
+  // Quoted text is literal: no expansion, so it doesn't block (a `$` in a word still keeps the flip in the union).
   const q = run("gh issue edit 138 -R joshgaskin/hatchery --title 'a $5 fix?' --add-label review", "@C");
-  assert.deepStrictEqual([q.block, dirsOf(q, 138)], [[], [fx.H]]);
+  assert.deepStrictEqual([q.block, has(q, 138, fx.H)], [[], true]);
 });
 
 test("#27 fourth witness D6: a cd target the shell supplies blocks, unless every flip names its repo", () => {

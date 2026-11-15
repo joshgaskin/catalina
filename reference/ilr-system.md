@@ -347,9 +347,19 @@ hand to something other than the witnessed version is unwitnessed code, and the 
 **`hooks/witness-gate.js`** (Claude Code, PreToolUse on Bash) runs the same check, red proof from the cache only, on
 every `gh issue edit … --add-label review`. **A cd never moves it** (shell cd can't be modelled safely: CDPATH,
 symlinks, `set -P`, quoting, a redirect that fails, a redefined cd).
+**Threat model:** the gate stops accidental or sloppy flips by agents; it does not stop deliberate obfuscation, which
+is the same class as `CATALINA_WITNESS_ALLOW`. So it works in a closed world:
+- **Unreadable blocks.** A flip the gate can't read fully and literally blocks (exit 2) with
+  `catalina gate: can't read this flip; write it as \`gh issue edit N -R owner/name --add-label review\``, after a
+  `can't read this flip: <why>` line per reason. Unreadable: a positional after `edit` that isn't `#?[0-9]+` or an
+  issue/pull URL it fully parses; any flag between `issue` and `edit`; any expansion in the gh command (`$`, backtick,
+  an unquoted glob or brace, args fed by `xargs`, a `-R` or `GH_REPO` from the shell, a label built by the shell); and,
+  when a flip doesn't name its repo, a cd/pushd/`env -C`/`GIT_DIR` target from the shell (`$`, glob, brace, `-`, `~user`).
+  The text counts as a possible flip when it mentions `review` or `--add-label` at all. The label is read as gh reads it,
+  a CSV row (`'"review"'` is a flip).
 - **Explicit:** a flip whose own gh argv names its repo is checked in that repo's local checkouts only (the cwd's repo
   when a remote matches, its main checkout, a sibling or child named for the repo). The repo is read the way gh ranks
-  it: an issue URL (one repo, no bare numbers beside it) beats the last `-R`/`--repo` (`owner/name`, `host/owner/name`,
+  it: an issue or pull URL (one repo, no bare numbers beside it) beats the last `-R`/`--repo` (`owner/name`, `host/owner/name`,
   `git@host:owner/name(.git)`, `https://host/owner/name(.git)`). It counts only when the flip parses cleanly: gh run
   directly at the top level (no path, wrapper or subshell), ASCII spaces or tabs only, balanced plain quotes, no `$`,
   backtick, glob, redirect or separator in its words, and nothing in the command that could redefine gh or aim it

@@ -19,6 +19,11 @@
  * targets, -R, GH_REPO, issue URLs), and blocks if any of them fails, so it is never looser than the pre-#27 gate. To
  * flip an issue in another repo, run `gh issue edit N -R owner/name --add-label review`.
  *
+ * Closed world: the gate stops accidental or sloppy flips by agents, not deliberate obfuscation (the same class as
+ * CATALINA_WITNESS_ALLOW). A flip it can't read fully and literally (a flag between `issue` and `edit`, a positional
+ * that isn't a plain number or issue/pull URL, any shell expansion in gh's argv, a label the shell builds, a cd target
+ * the shell supplies) blocks, and the hook prints target-repo's UNREADABLE hint once.
+ *
  * Fails closed: any error, a load failure, or a check past its deadline (CATALINA_GATE_DEADLINE_MS, default 5000) blocks
  * a command that could be a flip. Install it with `"timeout": 15, "onFailure": "block"` (install.sh does).
  *
@@ -35,9 +40,9 @@ const GATE_ERROR = "catalina gate error, blocking";
 const MAX_INPUT = 64 * 1024 * 1024;
 const MAX_COMMAND = 1024 * 1024;
 
-/** Could this text hold a review flip at all? Loose on purpose: quotes, escapes and $ removed first. */
+/** Could this text hold a review flip at all? Loose on purpose: quotes, escapes and $ removed first; any --add-label too. */
 const mayFlip = (t) =>
-  /review/i.test(
+  /review|add-label/i.test(
     String(t)
       .replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
       .replace(/\\\n/g, "")
@@ -149,7 +154,8 @@ function worker() {
     say(`[witness-gate] issue ${u.numbers.join(", ") || "?"} in ${u.repo} NOT checked: ${u.why}. Run the flip from that checkout to gate it.\n`);
   }
   for (const { n, dir: d } of p.gates) if (!gateOne(n, d)) blocked = true;
-  if (blocked && p.hint) say(`[witness-gate] ${target.HINT}.\n`);
+  if (p.unreadable) say(`[witness-gate] ${target.UNREADABLE}\n`);
+  if (blocked && p.hint && !p.unreadable) say(`[witness-gate] ${target.HINT}.\n`);
   parentPort.postMessage({ code: blocked ? 2 : 0, err });
 
   /** Check issue n in repo d; false when it must not enter review. */
