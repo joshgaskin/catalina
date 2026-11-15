@@ -607,7 +607,7 @@ const RAW_SLUGS = [
 const SPACE = /[\s\u00a0\u0085\u180e\u200b-\u200d\u2028\u2029\u202f\u205f\u3000\ufeff]+/;
 
 /** Caps: above any of them the gate blocks rather than check a command built to make it slow. */
-const MAX = { args: 20, bases: 60, slugs: 20, dirs: 20, numbers: 50 };
+const MAX = { cdWords: 500, cdRead: 4e6, args: 20, bases: 60, slugs: 20, dirs: 20, numbers: 50 };
 
 /** Every dir argument a cd, pushd, chdir or `env -C` in the text could take: [{dir} | {from, to}] (zsh's `cd old new`). */
 function dirArgs(s) {
@@ -617,8 +617,18 @@ function dirArgs(s) {
     const k = JSON.stringify(a);
     if (!seen.has(k)) seen.add(k), args.push(a);
   };
+  let heads = 0;
+  let read = 0;
   for (const m of s.matchAll(CD_HEAD)) {
-    const rest = s.slice(m.index + m[0].length).split("\n")[0];
+    // Past either cap the caller blocks: stop reading (each read is the rest of a line).
+    const from = m.index + m[0].length;
+    const nl = s.indexOf("\n", from);
+    const rest = s.slice(from, nl < 0 ? s.length : nl);
+    read += rest.length;
+    if (args.length > MAX.args || ++heads > MAX.cdWords || read > MAX.cdRead) {
+      args.over = true;
+      break;
+    }
     const words = simpleCommands(rest).find(Array.isArray) || [];
     const dd = words.indexOf("--");
     const plain = dd >= 0 ? words.slice(dd + 1) : words.filter((w) => !w.startsWith("-") || w === "-");
@@ -627,7 +637,7 @@ function dirArgs(s) {
     for (const w of dirs) add({ dir: w });
     if (dirs.length === 2) add({ from: dirs[0], to: dirs[1] });
   }
-  for (const m of s.matchAll(RAW_CHDIR)) add({ dir: unquote(m[1]) });
+  for (const m of s.matchAll(RAW_CHDIR)) if (args.length <= MAX.args) add({ dir: unquote(m[1]) });
   return args;
 }
 
@@ -668,7 +678,7 @@ function reachable(s, { cwd, home, env, flips, info }) {
   const cdpath = new Set();
   for (const v of [env.CDPATH, ...[...s.matchAll(RAW_CDPATH)].map((m) => unquote(m[1]))]) for (const e of String(v || "").split(":")) if (e) cdpath.add(e);
   const args = dirArgs(s);
-  if (args.length > MAX.args) return { over: `more than ${MAX.args} cd targets in one command` };
+  if (args.over || args.length > MAX.args) return { over: `more than ${MAX.args} cd targets, ${MAX.cdWords} cd words or ${MAX.cdRead / 1e6} MB of cd text in one command` };
   const expand = (a, base) => {
     const out = [];
     if (/^~-/.test(a)) return out;

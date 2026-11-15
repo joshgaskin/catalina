@@ -397,6 +397,11 @@ test("#27 caps: more than 20 candidate repos or 50 numbers blocks, fast", () => 
   const nums = Array.from({ length: 51 }, (_, i) => 1000 + i).join(" ");
   const r = run(`gh issue edit ${nums} --add-label review`);
   assert.ok(r.block.some((b) => /more than 50/.test(b)), JSON.stringify(r.block));
+  // One dir repeated: dedup keeps the targets under 20, so the count of cd words and the text read cap it.
+  for (const c of [`true # ${"cd a ".repeat(50000)}\n@F`, `true # ${"cd a ".repeat(400)}${"x".repeat(200000)}\n@F`]) {
+    const s = run(c);
+    assert.ok(s.block.some((b) => /500 cd words/.test(b)), JSON.stringify(s.block));
+  }
   assert.ok(Date.now() - t0 < 3000, `${Date.now() - t0} ms`);
 });
 
