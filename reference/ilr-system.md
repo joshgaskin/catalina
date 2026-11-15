@@ -308,6 +308,9 @@ One JSON line per AC (each naming the witnessed `sha`) and one per premortem ID:
 {"premortem": "P1", "outcome": "did_not_occur", "evidence": "..."}
 ```
 An issue that changed no code (docs, config) adds `{"red_green": "none", "reason": "..."}`.
+An issue whose new tests pin a guard main already has (they pass at the merge-base by design) adds a mutant line per
+guard instead: `{"red_green": "mutant", "patch": "evidence/<name>.patch", "tests": ["src/x.test.ts > <describe> > <test>"], "reason": "..."}`
+(see The Gate, and Writing a mutant patch below).
 
 Valid results: `pass`, `fail`, `needs_human`
 Valid methods: `visual`, `programmatic`, `both`, `none`
@@ -331,7 +334,48 @@ per AC and per premortem ID with real artifacts; every AC line naming the witnes
 tracking files changed after it; and a **red-then-green proof run for real** — the issue's new or
 changed tests copied onto a temp checkout of the merge-base must fail there on an assertion, or
 fail to load only because they import a module the change itself adds (any other load error isn't red), and pass at the commit. A diff that changes no code may record a
-`red_green` exemption instead. A record written after its fix already merged (so the merge-base has
+`red_green` exemption instead. Each changed test file is judged on its own: one that passes at the merge-base (its
+tests pin a guard main already has) needs a `{"red_green":"mutant"}` line that names a test in it, and only then does
+catalina replay mutant lines. `tests` names test cases as `<file> > <describe…> > <title>`, the chain the runner's JSON
+report gives, and each must be new or changed since the merge-base: its body (the call's arguments after the title,
+with comments, whitespace, semicolons and trailing commas set aside) matches no test body in any test file at the
+merge-base, so a reformat, a comment, a move (within the file or to another) or a rename (of the test, its describe or
+its file) is no change. Each name must be a literal title that no other test could also report, or catalina can't tell
+which one ran: a computed title (`test(name, …)`) could report any name, and a pattern title (`test.each(…)("adds %s",
+…)`, `` test(`adds ${a}`, …) ``) any name its static parts allow, with any text in its gaps. A file alone isn't a
+name. Every named test must pass in two fresh temp checkouts of the commit, and the two runs must agree on every
+test: a flaky pair proves nothing, so it is refused and its verdict is never cached. In a third fresh checkout, with
+the patch `git apply`d, every named test must fail on an assertion, not a crash, and at least half of the file's other
+tests that pass without the patch must still pass with it, so the mutant broke one guard, not loading or everything.
+Each run starts from a clean tree with no report file, so nothing one run leaves behind reaches the next. A crash is a
+file that reports no test, a test it reported without the patch that is missing with it (the run ended early), a
+failure with no failed test (a load error; jest marks the file failed whenever any test fails, so that alone isn't
+one), or a test that failed because the code called `process.exit` (the refusal says how to prove an exit guard: spy
+on `process.exit` in the test; it says so too when a file reports no test, which is how a real exit shows under
+`node --test`). A runner ended by a signal gives no verdict and isn't cached, and a report with
+failed tests from a run that exited 0 isn't the run's. A file with no other passing test can't show the mutant is
+specific, so its mutant line is refused: add a test the mutant should leave alone. The patch is a plain file (not a
+symlink or a directory, and not under a symlinked directory) under `.claude/tracking/issue-N/` (path relative to it,
+or repo-relative), may change only `code_glob` files the merge-base tracks (never tests, test infrastructure,
+tracking, symlinks, binary changes, other files, anything under `node_modules/`, ignored files or files the change
+adds), and must apply and change a line. Test infrastructure is what the tests run on: any path under a `__mocks__/`,
+`mocks/`, `test/`, `tests/`, `__tests__/`, `fixtures/`, `__fixtures__/`, `test-utils/` or `testutils/` directory, a
+setup file (`*.setup.*`, `*-setup.*`, `setupTests.*` and other `setup<something>.js`/`.ts`, `global-setup.*`,
+`globalSetup.*`; a plain `setup.ts` is code), a `test-utils.*`, `testUtils.*`, `test-helpers.*`, `*.mock(s).*`,
+`*.fixture(s).*` or `*.helper(s).*` file, runner config (`vitest.config.*`, `vite.config.*`, `vitest.workspace.*`,
+`jest.config.*`, …), and `test_helper_glob` in the config; a repo whose helpers live elsewhere lists them there. The
+refusal names the file. The patch's added lines must not reach into the runner either: no import or require of
+vitest, jest, `@jest/globals`, `node:test`, `assert`, chai, sinon, should or `@testing-library/jest-dom`; no
+`beforeEach`, `afterEach`, `beforeAll`, `afterAll`, `onTest…` callback, `import.meta.vitest` or
+`__vitest_worker__`; no `expect.`, `assert.`, `vi.` or `jest.` in code; and no runner global reached through
+`globalThis`, by name or by string (`globalThis["expect"]`, `Object.defineProperty(globalThis, "it", …)`), since a
+mutant that changes the runner can fail any test for a reason that isn't the guard. Mutant
+lines need per-test results, so they work with `red_parser` vitest or jest only. Every mutant line must hold; each
+verdict is cached by what the replay reads: the patch bytes, the blobs of the files it touches and of the named test
+files, the named tests, the runner and the version of these rules, not the sha, so a tracking-only commit after the
+witness still hits. When every
+changed test file fails at the base, mutant lines are ignored; a mutant never rescues a load error, a timeout or a red
+green run. A record written after its fix already merged (so the merge-base has
 the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the parent of the first
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
 blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
@@ -396,6 +440,63 @@ where the merges happen. Switch to `"enforce"` once a few days show only real pr
 pull` updates every project. A project's own rules go in `.claude/catalina/<command>.local.md`,
 pulled in at the command's `<!-- overlay -->` marker. `catalina doctor [--also <dir>]` lists any
 copy that has drifted from the package.
+
+### Writing a mutant patch
+
+For a test that pins a guard main already has, so it can't fail before the change:
+
+1. Find the guard: the line or branch in the code the test exists to protect (a try/catch, a check, a filter).
+2. Break only that, in the code (never in the test, a mock, a setup file, a fixture or the runner config, and never by
+   importing the test runner or an assertion library): delete the check, invert it, or return early. The smallest edit
+   that a real regression would look like.
+3. Run the test file. The test you're proving must fail on its assertion, and at least half of the other tests in the
+   same file must still pass. If more than half fail, or the file doesn't load, or the run stops early, the mutant
+   broke the module, not the guard: make it smaller. If the test still passes, it doesn't pin the guard: fix the test,
+   not the mutant. If the file has no other test, add one the mutant should leave alone. If the guard is that the code
+   doesn't exit, the regression calls `process.exit`, which the runner reports as a crash: have the test spy on it
+   (`vi.spyOn(process, "exit")`, or `jest.spyOn`, made to throw or return) and assert it isn't called, so the mutant
+   fails that assertion. The tests must give the same result every run: catalina runs them twice without the mutant
+   and refuses a pair that disagrees.
+4. Save it: `git diff -- <code files> > .claude/tracking/issue-N/evidence/<name>.patch`. Then restore the code
+   (`git checkout -- <code files>`) and check `git status` is clean.
+5. Add the line, naming the test the way the runner reports it, `<file> > <describe…> > <title>`:
+   `{"red_green":"mutant","patch":"evidence/<name>.patch","tests":["src/x.test.ts > walk > skips an unreadable folder"],"reason":"walk() without its readdir try/catch"}`.
+   One line per guard; a line may name several tests that the same mutant breaks.
+6. Run `catalina check --witness N`: it replays every line and caches the verdict.
+
+**What the check can't see.** The check catches honest but wrong mutant lines: a patch that breaks more than the
+guard, a test that doesn't pin it, a run that proves nothing. It does not stop a hostile witness. The reviewer reads
+every mutant patch (it is short by design, and commands/witness.md requires it) and asks whether it breaks the guard
+the reason names, and nothing else. Out of scope, by name:
+
+- **Padding (W04).** "At least half of the other tests still pass" counts tests, not what they check. A file padded
+  with trivial tests (`test("t1", () => {})`) passes a mutant that breaks the whole module.
+- **A test registered at run time (W06).** Code that calls `it(…)`, `test(…)` or `describe(…)` itself, or sets
+  `test.skip`, adds or hides tests the static check doesn't see; the patch's text shows it.
+- **A forged report (W07).** Each run deletes the report, starts from a fresh checkout and is refused when a signal
+  ends it, and a report with failures from a run that exited 0 is refused. A mutant that writes a plausible report and
+  lets the runner exit non-zero on its own is not caught.
+- **A forged cache entry (F6).** A cached verdict lives in the git common dir. Whoever can write `.git` can forge one,
+  but they can also edit `lib/`.
+- **Obfuscated runner reach.** The check reads the patch's text; it doesn't trace what the code does. Not caught: a
+  computed name (`require("vi" + "test")`, `globalThis[name]`), an alias (`const e = expect`), a bare `expect(…)`,
+  `module.constructor._load`, a library it doesn't list (power-assert, `uvu/assert`, vitest-mock-extended), sniffing
+  the runner (`process.env.JEST_WORKER_ID`, the stack), and a monkeypatch of something the test calls that isn't an
+  assertion library.
+- **Infrastructure names the list misses.** A helper outside the built-in names is code to the check: `spec/support/`,
+  `src/testing/`, `__helpers__/`, `stubs/`, `fakes/`, `factories/`, `e2e/`, `*.stub.*`, `*.factory.*`,
+  `babel.config.*`. A repo that keeps helpers there lists them in `test_helper_glob`.
+- **A flaky test that agrees twice.** Two clean runs that agree prove the pair, not every run; a test that fails one
+  run in three can still pass both.
+- **A leftover worktree (P3).** A run killed with SIGKILL (or a machine that loses power) leaves its `catalina-red-*`
+  worktree, with the patch applied, until the next run's sweep removes it. Normal runs and timeouts clean up.
+- **Body comparison is by text.** A body that differs only in a way that doesn't matter (a variable name, quote style)
+  is a change, and a new test whose body matches any old test's, in any file, is not.
+- **Computed titles.** A computed title is treated as able to report any name, and a pattern title any name it could
+  fill in, so a literal test that shares a name with one is refused even when the two never collide at run time. Give
+  it a distinct literal title.
+- **No other test.** A file whose only passing tests are the named ones is refused, even when the mutant is specific:
+  nothing in the file shows it.
 
 ---
 
