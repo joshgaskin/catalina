@@ -81,7 +81,7 @@ What you write here is what `catalina check` reads: it gates every push to the d
    - Capture evidence for each AC — screenshots or recordings showing the feature works
 
 4. **Write verification evidence:**
-   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, one per premortem ID, and — only when no test could change — one `red_green` line:
+   Create/update `.claude/tracking/issue-$ARGUMENTS/verification.jsonl` with one JSON line per AC, one per premortem ID, and a `red_green` line only when no test could change (`none`) or the new tests pin a guard main already has (`mutant`, one per guard):
 
    ```jsonl
    {"ac": "AC1: dashboard renders total with toast", "result": "pass", "method": "visual", "observable": true, "artifact": ".claude/tracking/issue-{N}/evidence/ac1.png", "evidence": "Screenshot shows total + success toast", "sha": "3f2c1ab"}
@@ -103,6 +103,31 @@ What you write here is what `catalina check` reads: it gates every push to the d
      `early_warning`, `occurred`, `unverifiable`. A trivial ticket's `Trivial:` line needs none.
    - `{"red_green": "none", "reason": "…"}` only when the issue changed no code (docs, config). Any
      code change needs a test that fails on main — the check runs it.
+   - `{"red_green": "mutant", "patch": "evidence/<name>.patch", "tests": ["src/x.test.ts > <describe> > <test>"], "reason": "…"}`
+     only when the check says a changed test file already passes on main because its tests pin a guard main already
+     has. Break the guard in the code, save `git diff -- <code files> > .claude/tracking/issue-$ARGUMENTS/evidence/<name>.patch`,
+     restore (`git checkout -- <code files>`, `git status` clean), and add one line per guard. `tests` names test
+     cases, `<file> > <describe…> > <title>` as the runner's JSON report gives them, each new or changed in this
+     issue (its body, with comments, whitespace and semicolons set aside, matches no test at the base in any file: a
+     reformat, a move or a rename, to another file too, isn't a change),
+     with a literal title no computed or templated title could also report. Every changed test file that passes on
+     main needs a line that names a test in it. The patch may touch code files the base tracks only (nothing under
+     `node_modules/`, ignored or added by the change), never tests, test
+     infrastructure (mocks, setup files, test utils, fixtures, anything under `test/`, `tests/` or `__tests__/`,
+     runner config, `test_helper_glob`) or tracking, must be a text diff (no binary, no symlink), and its added lines
+     must not import the test runner or an assertion library or use its hooks, `expect.` or `assert.`. Catalina
+     replays it at the witnessed commit: every named test must pass without it and fail with it on an assertion, and
+     at least half of the file's other passing tests must still pass. It runs the tests twice without it, in fresh
+     checkouts, and refuses a pair that disagrees. It fails the check when a named test survives it, when it crashes
+     the file (no tests reported, tests missing from the run, a load error, `process.exit`, a runner killed by a
+     signal), when more than half of the other tests fail, when the file has no other passing test, or when it doesn't
+     apply. It needs a runner with per-test results (`red_parser` vitest or jest). **Read every mutant patch**: it
+     must break the guard its reason names and nothing else. The check catches honest but wrong mutant lines; it does
+     not stop a hostile one, so a patch that hides a reach into the runner (`require("vi" + "test")`, an alias of
+     `expect`), pads the file with trivial tests, registers tests from code, forges the report, or breaks something
+     unrelated that the test happens to call is yours to catch; every out-of-scope case is listed under "What the
+     check can't see" in the recipe at
+     reference/ilr-system.md, "Writing a mutant patch".
    - **`pass` + `method:"none"` is banned** — that's a claim, not evidence.
    - `needs_human`: name what a human must do and why. It does NOT block reaching `review`, but it
      DOES block ship until the human confirms.
