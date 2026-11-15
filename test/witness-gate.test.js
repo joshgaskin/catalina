@@ -39,7 +39,7 @@ const FLIP = "--remove-label dev/implement --add-label review";
 const gate = (cwd, command, env = {}, hook = HOOK) => {
   const base = { ...process.env };
   delete base.CATALINA_WITNESS_ALLOW;
-  const r = spawnSync("node", [hook], { cwd, encoding: "utf8", env: { ...base, ...env }, input: JSON.stringify({ tool_input: { command } }) });
+  const r = spawnSync("node", [hook], { cwd, encoding: "utf8", env: { ...base, ...env }, input: JSON.stringify({ tool_input: { command } }), timeout: 20000 });
   return { code: r.status, err: r.stderr };
 };
 
@@ -64,25 +64,25 @@ function twoRepos(n, { session, target }) {
   return { s, t };
 }
 
-test("#27 AC1: `cd <repo> &&` checks that repo's issue, not the session's", () => {
+test("#27 AC1: a cd never moves the gate: the session repo is always checked, and the cd's repo too", () => {
   const a = twoRepos(160, { session: "fail", target: "pass" });
-  const ok = gate(a.s.cwd, `cd ${a.t.cwd} && gh issue edit 160 ${FLIP}`);
-  assert.strictEqual(ok.code, 0, ok.err);
-  for (const c of [`(cd ../target && gh issue edit 160 ${FLIP})`, `cd ~/target; gh issue edit 160 ${FLIP}`]) {
+  for (const c of [`cd ${a.t.cwd} && gh issue edit 160 ${FLIP}`, `(cd ../target && gh issue edit 160 ${FLIP})`, `cd ~/target; gh issue edit 160 ${FLIP}`]) {
     const r = gate(a.s.cwd, c, { HOME: a.s.tmp });
-    assert.strictEqual(r.code, 0, `${c}: ${r.err}`);
+    assert.strictEqual(r.code, 2, `${c}: ${r.err}`);
+    assert.match(r.err, /P1 has no verification/, c);
+    assert.match(r.err, /to flip an issue in another repo, run `gh issue edit N -R owner\/name/, c);
   }
-  const quoted = gate(a.s.cwd, `git commit -m "cd ${a.t.cwd} && x" && gh issue edit 160 ${FLIP}`);
-  assert.strictEqual(quoted.code, 2, "a quoted cd doesn't move the gate");
-
-  const b = twoRepos(161, { session: "none", target: "fail" });
+  const b = twoRepos(161, { session: "pass", target: "fail" });
   const r = gate(b.s.cwd, `cd ${b.t.cwd} && gh issue edit 161 ${FLIP}`);
-  assert.strictEqual(r.code, 2);
-  assert.match(r.err, /P1 has no verification/);
+  assert.strictEqual(r.code, 2, "the cd's repo fails, so it blocks");
   assert.ok(r.err.includes(fs.realpathSync(b.t.cwd)), `names the repo: ${r.err}`);
+  const c = twoRepos(159, { session: "pass", target: "pass" });
+  const ok = gate(c.s.cwd, `cd ${c.t.cwd} && gh issue edit 159 ${FLIP}`);
+  assert.strictEqual(ok.code, 0, ok.err);
+  assert.match(ok.err, /every repo this command could reach/);
 });
 
-test("#27 AC2: -R/--repo and an issue URL check a local checkout of that repo", () => {
+test("#27 AC2: a flip that names its repo (-R/--repo, an issue URL) is checked there only", () => {
   const a = twoRepos(162, { session: "none", target: "fail" });
   for (const c of [
     `gh -R o/target issue edit 162 ${FLIP}`,
@@ -95,10 +95,19 @@ test("#27 AC2: -R/--repo and an issue URL check a local checkout of that repo", 
     assert.match(r.err, /P1 has no verification/, c);
   }
   const b = twoRepos(163, { session: "fail", target: "pass" });
-  const ok = gate(b.s.cwd, `gh -R o/target issue edit 163 ${FLIP}`);
-  assert.strictEqual(ok.code, 0, ok.err);
-  const own = gate(b.s.cwd, `gh -R o/session issue edit 163 ${FLIP}`);
-  assert.strictEqual(own.code, 2, "the session repo itself, named");
+  for (const c of [
+    `gh -R o/target issue edit 163 ${FLIP}`,
+    `cd ${b.s.cwd} && gh -R o/target issue edit 163 ${FLIP}`,
+    `gh issue edit https://github.com/o/target/issues/163 -R o/session ${FLIP}`,
+  ]) {
+    const ok = gate(b.s.cwd, c);
+    assert.strictEqual(ok.code, 0, `${c}: ${ok.err}`);
+  }
+  assert.strictEqual(gate(b.s.cwd, `gh -R o/session issue edit 163 ${FLIP}`).code, 2, "the session repo itself, named");
+  assert.strictEqual(gate(b.s.cwd, `gh issue edit https://github.com/o/session/issues/163 -R o/target ${FLIP}`).code, 2, "the URL wins over -R");
+  for (const c of [`gh -R "$R" issue edit 163 ${FLIP}`, `gh -R o/target issue edit 163 ${FLIP} 2>&1`, `GH_REPO=o/target gh -R o/target issue edit 163 ${FLIP}`]) {
+    assert.strictEqual(gate(b.s.cwd, c, { R: "o/target" }).code, 2, `not clean, so the union: ${c}`);
+  }
 });
 
 test("#27 AC2: a named repo with no local checkout is let through, and says so", () => {
@@ -129,6 +138,7 @@ test("#27 AC4: git -C doesn't move the gate (gh doesn't read it), and a differen
   const r = gate(a.s.cwd, `git -C ${a.t.cwd} log -1 && gh issue edit 166 ${FLIP}`);
   assert.strictEqual(r.code, 2, "gh edits the session repo's #166, so that is what is checked");
   assert.match(r.err, /git -C/);
+  assert.doesNotMatch(gate(a.s.cwd, `git -C . status && gh issue edit 166 ${FLIP}`).err, /note: .*git -C/);
 });
 
 test("#27 AC5: several numbers are each gated; messages name a repo that isn't the cwd", () => {
@@ -145,11 +155,11 @@ test("#27 AC5: the hook finds its parsing module when installed as per-file link
   fs.mkdirSync(path.join(dir, "lib"));
   fs.symlinkSync(HOOK, path.join(dir, "witness-gate.js"));
   fs.symlinkSync(path.join(path.dirname(HOOK), "lib", "verify-witness.js"), path.join(dir, "lib", "verify-witness.js"));
-  const r = gate(a.s.cwd, `cd ${a.t.cwd} && gh issue edit 172 ${FLIP}`, {}, path.join(dir, "witness-gate.js"));
+  const r = gate(a.s.cwd, `gh -R o/target issue edit 172 ${FLIP}`, {}, path.join(dir, "witness-gate.js"));
   assert.strictEqual(r.code, 0, r.err);
 });
 
-test("#27 witness fixes 1-2: an unresolvable or subshell cd gates the session repo, as main does", () => {
+test("#27 witness fixes 1-2: a cd the gate can't read still checks the session repo", () => {
   const a = twoRepos(173, { session: "fail", target: "pass" });
   for (const c of [
     `WT=${a.t.cwd}; cd $WT && gh issue edit 173 ${FLIP}`,
@@ -162,7 +172,6 @@ test("#27 witness fixes 1-2: an unresolvable or subshell cd gates the session re
     assert.strictEqual(r.code, 2, `${c}: ${r.err}`);
     assert.match(r.err, /P1 has no verification/, c);
   }
-  assert.match(gate(a.s.cwd, `cd /no/such/dir; gh issue edit 173 ${FLIP}`).err, /can't resolve `cd/);
 });
 
 test("#27 witness fix 3: wrapped gh is gated, and anything the old regex caught but the parser can't read gates the cwd", () => {
@@ -176,30 +185,28 @@ test("#27 witness fix 3: wrapped gh is gated, and anything the old regex caught 
     `echo 174 | xargs -I{} gh issue edit {} ${FLIP}`,
     `echo "gh issue edit 174 ${FLIP}"`,
   ]) assert.strictEqual(gate(a.s.cwd, c).code, 2, c);
-  assert.match(gate(a.s.cwd, `echo "gh issue edit 174 ${FLIP}"`).err, /too complex/);
+  assert.match(gate(a.s.cwd, `echo "gh issue edit 174 ${FLIP}"`).err, /every repo this command could reach/);
 });
 
-test("#27 witness fix 4: git -C after a cd is read from that dir", () => {
-  const a = twoRepos(175, { session: "fail", target: "pass" });
-  const r = gate(a.s.cwd, `cd ${a.t.cwd} && git -C . status && gh issue edit 175 ${FLIP}`);
-  assert.strictEqual(r.code, 0, r.err);
-  assert.doesNotMatch(r.err, /git -C/);
-});
-
-test("#27 witness fix 5: GH_REPO (prefix, export, or the hook's env) names the repo", () => {
+test("#27 witness fix 5 and third witness D3: GH_REPO in any form checks its repo and the session's", () => {
   const a = twoRepos(176, { session: "none", target: "fail" });
+  const b = twoRepos(175, { session: "fail", target: "pass" });
   for (const [c, env] of [
-    [`GH_REPO=o/target gh issue edit 176 ${FLIP}`, {}],
-    [`export GH_REPO=o/target; gh issue edit 176 ${FLIP}`, {}],
-    [`gh issue edit 176 ${FLIP}`, { GH_REPO: "o/target" }],
+    [`GH_REPO=o/target gh issue edit N ${FLIP}`, {}],
+    [`export GH_REPO=o/target; gh issue edit N ${FLIP}`, {}],
+    [`GH_REPO=o/target; export GH_REPO; gh issue edit N ${FLIP}`, {}],
+    [`declare -x GH_REPO=o/target; gh issue edit N ${FLIP}`, {}],
+    [`set -a; GH_REPO=o/target; gh issue edit N ${FLIP}`, {}],
+    [`gh issue edit N ${FLIP}`, { GH_REPO: "o/target" }],
   ]) {
-    const r = gate(a.s.cwd, c, env);
+    const r = gate(a.s.cwd, c.replace("N", "176"), env);
     assert.strictEqual(r.code, 2, `${c} ${JSON.stringify(env)}: ${r.err}`);
     assert.match(r.err, /P1 has no verification/);
+    assert.strictEqual(gate(b.s.cwd, c.replace("N", "175"), env).code, 2, `the session repo too: ${c}`);
   }
 });
 
-test("#27 second witness: a script too complex to pick one repo is checked in the session repo and every repo it names", () => {
+test("#27 second witness: a script with a cd or a GH_REPO is checked in the session repo and every repo it names", () => {
   const a = twoRepos(177, { session: "fail", target: "pass" });
   for (const c of [
     `cat > /dev/null <<'X'\ncd ${a.t.cwd}\nX\ngh issue edit 177 ${FLIP}`,
@@ -210,7 +217,7 @@ test("#27 second witness: a script too complex to pick one repo is checked in th
     const r = gate(a.s.cwd, c);
     assert.strictEqual(r.code, 2, `${c}: ${r.err}`);
     assert.match(r.err, /P1 has no verification/, c);
-    assert.strictEqual(r.err.match(/too complex/g).length, 1, c);
+    assert.strictEqual(r.err.match(/every repo this command could reach/g).length, 1, c);
   }
   const b = twoRepos(178, { session: "pass", target: "fail" });
   const r = gate(b.s.cwd, `cd ${b.t.cwd} || true; gh issue edit 178 ${FLIP}`);
@@ -246,5 +253,51 @@ test("#27 second witness: -R in ssh or https URL form finds the checkout", () =>
     const r = gate(a.s.cwd, `gh issue edit 181 ${FLIP} -R ${v}`);
     assert.strictEqual(r.code, 2, `${v}: ${r.err}`);
     assert.doesNotMatch(r.err, /NOT checked/, v);
+  }
+});
+
+const GATE_ERROR = /catalina gate error, blocking: /;
+
+test("#27 AC12: the gate fails closed: a deadline, a crash or input it can't read blocks a review flip", () => {
+  const a = twoRepos(182, { session: "pass", target: "none" });
+  assert.strictEqual(gate(a.s.cwd, `gh issue edit 182 ${FLIP}`).code, 0, "passes normally");
+  const slow = gate(a.s.cwd, `gh issue edit 182 ${FLIP}`, { CATALINA_GATE_DEADLINE_MS: "1" });
+  assert.strictEqual(slow.code, 2, slow.err);
+  assert.match(slow.err, GATE_ERROR);
+  assert.match(slow.err, /deadline/);
+
+  // verification.jsonl as a directory: the validator throws EISDIR.
+  const b = twoRepos(183, { session: "none", target: "none" });
+  fs.mkdirSync(path.join(b.s.cwd, ".claude", "tracking", "issue-183", "verification.jsonl"), { recursive: true });
+  fs.writeFileSync(path.join(b.s.cwd, ".claude", "tracking", "issue-183", "tracking.md"), "# x\n");
+  const eisdir = gate(b.s.cwd, `gh issue edit 183 ${FLIP}`);
+  assert.strictEqual(eisdir.code, 2, eisdir.err);
+  assert.match(eisdir.err, GATE_ERROR);
+
+  const raw = (input) => spawnSync("node", [HOOK], { cwd: a.s.cwd, encoding: "utf8", input }).status;
+  assert.strictEqual(raw(`{"tool_input": {"command": "gh issue edit 182 --add-label review"`), 2, "broken JSON that mentions review");
+  assert.strictEqual(raw(`{"tool_input": {"command": "ls"`), 0, "broken JSON that doesn't");
+  const big = JSON.stringify({ tool_input: { command: `gh issue edit 182 ${FLIP} # ${"x".repeat(1100 * 1024)}` } });
+  assert.strictEqual(raw(big), 2, "over 1 MB, mentioning review");
+  assert.strictEqual(raw(JSON.stringify({ tool_input: { command: `ls # ${"x".repeat(1100 * 1024)}` } })), 0, "over 1 MB, not");
+  assert.strictEqual(raw(JSON.stringify({ tool_input: { command: "ls" } })), 0);
+});
+
+test("#27 AC12: a command built to make the gate slow (the witness's dos.js, K=200) blocks within 6 s", () => {
+  const P = path.join(os.tmpdir());
+  const fw = fs.existsSync("/System/Library/Frameworks")
+    ? fs.readdirSync("/System/Library/Frameworks").map((d) => "/System/Library/Frameworks/" + d)
+    : Array.from({ length: 340 }, (_, i) => `/usr/lib/x${i}`);
+  const slugs = Array.from({ length: 200 }, (_, i) => `-R n/x${i}`).join(" ");
+  const bases = ["Versions", "Versions/A", "Versions/Current", "Resources", "Versions/A/Resources"];
+  for (const command of [
+    "true # " + fw.map((d) => "cd " + d).join(" ") + " " + slugs + "\ngh issue edit 138 --add-label review",
+    "true # " + [...fw.map((d) => "cd " + d), ...bases.map((r) => "cd " + r)].join(" ") + "\ngh issue edit 138 --add-label review",
+  ]) {
+    const t = Date.now();
+    const r = gate(P, command);
+    const ms = Date.now() - t;
+    assert.strictEqual(r.code, 2, r.err);
+    assert.ok(ms < 6000, `${ms} ms`);
   }
 });

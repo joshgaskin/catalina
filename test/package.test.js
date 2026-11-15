@@ -105,6 +105,9 @@ test("AC13: install removes settings entries for deleted hooks, keeps the rest, 
   const fmt = s.hooks.PostToolUse.find((e) => JSON.stringify(e).includes("post-edit-format.js"));
   assert.strictEqual(fmt.matcher, "Edit|Write");
   assert.strictEqual(s.hooks.PostToolUse.filter((e) => JSON.stringify(e).includes("post-edit-format.js")).length, 1, "no duplicate");
+  // #27 AC12: the witness gate fails closed, with time for its own 5 s deadline.
+  const wg = s.hooks.PreToolUse.flatMap((e) => e.hooks).find((h) => h.command.includes("witness-gate.js"));
+  assert.deepStrictEqual([wg.timeout, wg.onFailure], [15, "block"]);
   // idempotent
   i.run();
   assert.deepStrictEqual(i.settings(), s);

@@ -125,31 +125,36 @@ test("#27 witness fix 5: GH_REPO names the repo, below -R and a URL", () => {
   assert.strictEqual(one("GH_REPO=o/n true && gh issue edit 9 --add-label review").repo, null, "a prefix on another command");
 });
 
-test("#27 witness fixes 1 and 4: resolveFlip keeps the last dir it could resolve, and reads git -C from where it runs", () => {
-  const fs = require("fs");
-  const { makeRepo } = require("./helpers/repo");
-  const { resolveFlip } = require("../hooks/lib/target-repo");
-  const s = makeRepo();
-  const t = makeRepo();
-  const here = fs.realpathSync(s.cwd);
-  for (const c of [
-    `WT=${t.cwd}; cd $WT && gh issue edit 9 --add-label review`,
-    `WT=${t.cwd}; cd "$WT" && gh issue edit 9 --add-label review`,
-    "cd $(git rev-parse --show-toplevel) && gh issue edit 9 --add-label review",
-    "cd /no/such/dir; gh issue edit 9 --add-label review",
-    `cd ${t.cwd}/nope && gh issue edit 9 --add-label review`,
-  ]) {
-    const r = resolveFlip(one(c), s.cwd);
-    assert.strictEqual(r.dir, here, c);
-    assert.ok(r.notes.some((n) => /can't resolve `cd/.test(n)), `${c}: ${JSON.stringify(r.notes)}`);
-  }
-  const ok = resolveFlip(one(`cd ${t.cwd} && cd /no/such && gh issue edit 9 --add-label review`), s.cwd);
-  assert.strictEqual(ok.dir, fs.realpathSync(t.cwd), "the last dir it could resolve");
-  const quiet = resolveFlip(one(`cd ${t.cwd} && git -C . status && gh issue edit 9 --add-label review`), s.cwd);
-  assert.deepStrictEqual([quiet.dir, quiet.notes], [fs.realpathSync(t.cwd), []], "git -C . after the cd names the gated repo");
-  const loud = resolveFlip(one(`cd ${t.cwd} && git -C ${s.cwd} status && gh issue edit 9 --add-label review`), s.cwd);
-  assert.ok(loud.notes.some((n) => /git -C/.test(n)), JSON.stringify(loud.notes));
-  const dyn = resolveFlip(one("gh -R $REPO issue edit 9 --add-label review"), s.cwd);
-  assert.strictEqual(dyn.dir, here, "a -R the parser can't read gates the cwd repo");
-  assert.ok(dyn.notes.length, "and says so");
+test("#27 third witness D1: an issue URL beats -R and GH_REPO, as gh ranks them", () => {
+  assert.strictEqual(one("gh issue edit https://github.com/p/q/issues/9 -R o/n --add-label review").repo, "p/q");
+  assert.strictEqual(one("gh -R o/n issue edit https://github.com/p/q/issues/9 --add-label review").repo, "p/q");
+  assert.strictEqual(one("gh issue edit 9 -R o/n -R p/q --add-label review").repo, "p/q", "the last -R wins");
+});
+
+test("#27 numbers drop # and leading zeros; the label matches in any case", () => {
+  assert.deepStrictEqual(one("gh issue edit 0138 --add-label review").numbers, ["138"]);
+  assert.deepStrictEqual(one("gh issue edit '#0138' --add-label REVIEW").numbers, ["138"]);
+});
+
+test("#27 .explicit: the repo the flip's own argv names, only when it parses cleanly", () => {
+  for (const [c, want] of [
+    ["gh -R o/n issue edit 9 --add-label review", "o/n"],
+    ["gh issue edit 9 --add-label review --repo=o/n", "o/n"],
+    ["gh issue edit 9 --add-label review -R 'o/n'", "o/n"],
+    ["gh issue edit 9 --add-label review -R git@github.com:o/n.git", "o/n"],
+    ["gh issue edit https://github.com/p/q/issues/9 -R o/n --add-label review", "p/q"],
+    ["cd /x && gh -R o/n issue edit 9 --add-label review", "o/n"],
+    ["gh issue edit 9 --add-label review", null],
+    ["gh -R $R issue edit 9 --add-label review", null],
+    ['gh -R "o/$N" issue edit 9 --add-label review', null],
+    ["gh -R o/n* issue edit 9 --add-label review", null],
+    ["gh -R o/n issue edit 9 --add-label review 2>&1", null],
+    ["gh -R o/../n issue edit 9 --add-label review", null],
+    ["GH_REPO=p/q gh -R o/n issue edit 9 --add-label review", null],
+    ["timeout 5 gh -R o/n issue edit 9 --add-label review", null],
+    ["(gh -R o/n issue edit 9 --add-label review)", null],
+    ["/usr/local/bin/gh -R o/n issue edit 9 --add-label review", null],
+    ["gh issue edit https://github.com/p/q/issues/9 https://github.com/o/n/issues/9 --add-label review", null],
+    ["gh issue edit https://github.com/p/q/issues/9 10 --add-label review", null],
+  ]) assert.strictEqual(one(c).explicit, want, c);
 });
