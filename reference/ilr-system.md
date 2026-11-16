@@ -382,8 +382,9 @@ blobs, in the git common dir); every other caller reads the cache and runs only 
 
 A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
 commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
-differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs). A code or test file resolved by
-hand to something other than the witnessed version is unwitnessed code, and the check names it.
+differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs), or in code or test files whose
+conflicts were resolved by keeping both sides unchanged (#31). A code or test file resolved by hand to anything else
+than the witnessed version is unwitnessed code, and the check names it.
 
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
