@@ -8,8 +8,9 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-// A box-wide CATALINA_RED_CACHE (the plus2 VPS sets one) would be shared by every fixture repo, and fixtures built in
-// the same second have the same shas: one test's red proof would answer another's. Each fixture keeps its own cache.
+// A CATALINA_RED_CACHE from the environment (the plus2 VPS sets one) would be shared by every fixture repo and outlive
+// the run. Each fixture has its own state dir, and its own shas (the README names the fixture), so no test's red proof
+// answers another's.
 delete process.env.CATALINA_RED_CACHE;
 
 function sh(cmd, args, cwd, env = {}) {
@@ -66,7 +67,9 @@ function makeRepo(opts = {}) {
   };
   repo.write(".catalina/config.json", JSON.stringify(repo.config(opts.config)));
   if (!opts.noCode) repo.write("src/add.js", opts.baseFixed ? FIXED : BUGGY);
-  repo.write("README.md", "fixture\n");
+  // The red cache is box-wide and keyed by content. Two fixtures alive in one test share a state dir (the env names the
+  // last one made), so each fixture's history is its own: no fixture's verdict answers another's.
+  repo.write("README.md", `fixture ${path.basename(tmp)}\n`);
   repo.commit("init");
   repo.git("push", "-q", "-u", "origin", "main");
   sh("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], cwd);
