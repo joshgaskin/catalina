@@ -378,12 +378,15 @@ changed test file fails at the base, mutant lines are ignored; a mutant never re
 green run. A record written after its fix already merged (so the merge-base has
 the fix) names `Red base: <sha>` in tracking.md; it counts only when it is the parent of the first
 commit mentioning #N, else the check fails naming that parent. `--witness` runs the red proof and caches it (by base + test
-blobs, in the git common dir); every other caller reads the cache and runs only on a miss.
+blobs, in `${CATALINA_STATE_DIR:-~/.catalina-state}/<owner>__<name>/red-cache`, shared by every clone of the repo on the
+box); every other caller reads the cache and runs only on a miss. `CATALINA_RED_CACHE` names another dir. A verdict in
+the clone's own git dir, where they lived before, is still read.
 
 A witnessed sha that left the history (the branch was rebased after the witness, or squash-merged) counts where a
 commit carries its change: the same patch, or the witnessed commit three-way merged onto that commit's parent, with
-differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs). A code or test file resolved by
-hand to something other than the witnessed version is unwitnessed code, and the check names it.
+differences only in files that are neither code nor tests (RELEASE_NOTES.md, docs), or in code or test files whose
+conflicts were resolved by keeping both sides unchanged (#31). A code or test file resolved by hand to anything else
+than the witnessed version is unwitnessed code, and the check names it.
 
 **`hooks/pre-push`** (git, installed into the repo's hooks dir) gates pushes to the default branch:
 - commits touching only `.claude/tracking/**` pass (spec, evidence, lessons);
@@ -418,7 +421,8 @@ hourly from a cron, and in `/groom`.
   "red_cmd": "npx vitest run {files} --reporter=json --outputFile={report}",
   "red_parser": "vitest",
   "red_setup": "cp -al \"$CATALINA_ROOT/node_modules\" node_modules",
-  "red_timeout_s": 300
+  "red_timeout_s": 300,
+  "red_pool": { "keep": ["node_modules"], "stamp": ["node_modules/.modules.yaml"] }
 }
 ```
 
@@ -426,6 +430,15 @@ hourly from a cron, and in `/groom`.
   checked as quick tasks, so follow-up commits to them aren't blocked by old-format tracking files.
 - `no_undo`: paths where a mistake can't be taken back (money, migrations, customer sends,
   tracking). Quick tasks never touch them; they always need an issue.
+- `red_pool` (optional, off when absent): reuse one checkout per clone for the red proof instead of making a temp
+  worktree and running `red_setup` for each. Without it a proof runs `red_setup` twice (three times for a mutant), and
+  with a large `node_modules` that copy is most of the run. The checkout lives in
+  `${CATALINA_STATE_DIR:-~/.catalina-state}/red-pool/<clone>/slot-N`. Between runs it is moved to the next ref with a
+  forced checkout and a full clean (untracked and ignored files), sparing only the `keep` patterns (gitignore
+  syntax): name what `red_setup` makes, nothing else. `red_setup` runs when a slot is built, and again when
+  `red_setup`, `keep` or the content of a `stamp` file changes (paths in the project; name the file your package
+  manager rewrites on install). Runs at the same time each take their own slot, up to 4; past that a run uses temp
+  worktrees as before.
 - `red_parser`: `vitest` / `jest` (JSON report at `{report}`), `node-test`, or `exit-code`
   (can't tell a load error from an assertion — use a real parser when one exists).
 
@@ -476,8 +489,11 @@ the reason names, and nothing else. Out of scope, by name:
 - **A forged report (W07).** Each run deletes the report, starts from a fresh checkout and is refused when a signal
   ends it, and a report with failures from a run that exited 0 is refused. A mutant that writes a plausible report and
   lets the runner exit non-zero on its own is not caught.
-- **A forged cache entry (F6).** A cached verdict lives in the git common dir. Whoever can write `.git` can forge one,
-  but they can also edit `lib/`.
+- **A forged cache entry (F6).** A cached verdict lives in the box's state dir (or the git common dir). Whoever can
+  write there can forge one, but they can also edit `lib/`.
+- **What a run leaves in a kept path (`red_pool`).** A reused checkout is reset to the ref and cleaned of everything
+  but the `keep` paths, so a file a run writes inside one (under `node_modules`, say) is there for the next run. A
+  `red_setup` that hard-links or symlinks the project's `node_modules` already shares it the same way.
 - **Obfuscated runner reach.** The check reads the patch's text; it doesn't trace what the code does. Not caught: a
   computed name (`require("vi" + "test")`, `globalThis[name]`), an alias (`const e = expect`), a bare `expect(…)`,
   `module.constructor._load`, a library it doesn't list (power-assert, `uvu/assert`, vitest-mock-extended), sniffing

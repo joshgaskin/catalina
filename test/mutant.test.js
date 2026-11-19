@@ -411,7 +411,7 @@ test("#28 D6: a cache hit names the patch the record names now (F5)", () => {
 test("#28 AC4: verdicts cached before this rule (v4) re-run, a green one too", () => {
   const { repo, tip } = setup(296);
   assert.strictEqual(run(repo, 296, { sha: tip }).ok, true);
-  const cache = path.join(repo.git("rev-parse", "--path-format=absolute", "--git-common-dir"), "catalina", "red-cache");
+  const cache = path.join(repo.tmp, "state", "o__r", "red-cache");
   // The mutant's entry, marked as written before v5 (a v4 base verdict here was a failing basePass, already a miss).
   let forged = 0;
   for (const f of fs.readdirSync(cache)) {
@@ -428,7 +428,7 @@ test("#28 AC4: verdicts cached before this rule (v4) re-run, a green one too", (
 });
 
 test("#28 D4: a green base verdict over several files cached before v5 re-runs; over one file it still hits", () => {
-  const cacheOf = (repo) => path.join(repo.git("rev-parse", "--path-format=absolute", "--git-common-dir"), "catalina", "red-cache");
+  const cacheOf = (repo) => path.join(repo.tmp, "state", "o__r", "red-cache");
   const age = (repo) => {
     for (const f of fs.readdirSync(cacheOf(repo))) {
       const p = path.join(cacheOf(repo), f);
@@ -650,6 +650,20 @@ test("#28 W01: each run gets a fresh checkout, so a test that leaves a file behi
   assert.strictEqual(r.ok, false);
   assert.ok(has(r, /mutant evidence\/m\.patch survives: test\/add\.test\.js > writes the sum still passes/), why(r));
   assert.deepStrictEqual(redWorktrees(repo), []);
+});
+
+test("#28 W01 with red_pool: the reused checkout is reset between runs, so the file a test leaves behind still can't reach the next", () => {
+  const POOL = { red_setup: "mkdir -p deps", red_pool: { keep: ["deps"] } };
+  const t = "const fs = require('node:fs');\nconst path = require('node:path');\n" + HEAD +
+    "test('writes the sum', () => {\n  const p = path.join(__dirname, 'sum.txt');\n  assert.ok(!fs.existsSync(p), 'sum.txt already there');\n  fs.writeFileSync(p, String(add(2, 3)));\n});\n" + ADDS + IS_FN;
+  const leaky = setup(362, { config: POOL, testText: t, patches: NOOP, lines: [line({ tests: [`${T} > writes the sum`] })] });
+  const r = run(leaky.repo, 362, { sha: leaky.tip });
+  assert.ok(has(r, /mutant evidence\/m\.patch survives: test\/add\.test\.js > writes the sum still passes/), why(r));
+  // and a real mutant is still proven in the pool's one checkout
+  const real = setup(363, { config: POOL });
+  const ok = run(real.repo, 363, { sha: real.tip });
+  assert.deepStrictEqual(ok.reasons, [], why(ok));
+  assert.match(ok.red.via, /mutant evidence\/m\.patch/);
 });
 
 test("#28 W01b, W11: the clean run runs twice and must agree; a flaky pair is refused and never cached", () => {
