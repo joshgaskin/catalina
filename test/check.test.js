@@ -284,3 +284,58 @@ test("AC3b: a Red base line pointing anywhere but the fix's parent fails", () =>
   const junk = recordAfterFix(other, 153, "deadbeef");
   assert.ok(has(run(other, 153, { sha: junk }), /Red base deadbeef/), "an unknown sha fails too");
 });
+
+// plus2 #2943: a JSON fixture under __tests__ matches test_glob, but the runner never reports it
+test("#2943 fix 1: a JSON fixture in the change isn't sent to the runner as a test, and is on the red base", () => {
+  // vitest's report, as plus2 runs it: a file that throws at load is a load failure, not red
+  const repo = makeRepo({
+    config: {
+      red_cmd: `node --test --test-reporter='${require("./helpers/repo").ROOT}/test/helpers/vitest-json.mjs' --test-reporter-destination={report} {files}`,
+      red_parser: "vitest",
+    },
+  });
+  repo.git("checkout", "-q", "-b", "issue-170", "origin/main");
+  repo.write("src/add.js", require("./helpers/repo").FIXED);
+  // the test reads the fixture, so the fixture must be on the red base too, beside the test
+  repo.write("test/add.test.js", TEST.replace("test('adds'", "const sums = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '__tests__/fixtures/sums.json'), 'utf8'));\ntest('fixture', () => assert.strictEqual(sums['2+3'], 5));\ntest('adds'"));
+  repo.write("test/__tests__/fixtures/sums.json", '{"2+3":5}\n');
+  const fix = repo.commit("fix add (Refs #170)");
+  repo.write(".claude/tracking/issue-170/tracking.md", tracking(170));
+  repo.write(".claude/tracking/issue-170/verification.jsonl", verification(fix));
+  const tip = repo.commit("evidence (Refs #170)");
+  const r = run(repo, 170, { sha: tip });
+  assert.deepStrictEqual(r.reasons, []);
+});
+
+/** Squash-merges branch `from` onto main as PR `number` (its head pushed to refs/pull/<number>/head). */
+function squashPR(repo, from, number, message) {
+  repo.git("push", "-q", "origin", `HEAD:refs/pull/${number}/head`);
+  repo.git("checkout", "-q", "-B", "main", "origin/main");
+  repo.git("merge", "-q", "--squash", from);
+  const sha = repo.commit(message);
+  repo.git("push", "-q", "origin", "HEAD:main");
+  return sha;
+}
+
+// plus2 #2943: PR #2942 carried one tracking-only #2199 note beside #2796's code; the squash message says Refs #2199
+test("#2943 fix 2: a squash whose only #N commit is a tracking note isn't #N's code after the witness", () => {
+  const repo = makeRepo();
+  buildIssue(repo, 160);
+  repo.git("push", "-q", "origin", "HEAD:main");
+  repo.git("checkout", "-q", "-b", "pr-9", "origin/main");
+  repo.write("src/mul.js", "module.exports = (a, b) => a * b;\n");
+  repo.write("test/mul.test.js", "const test = require('node:test');\nconst assert = require('node:assert');\nconst mul = require('../src/mul');\ntest('mul', () => assert.strictEqual(mul(2, 3), 6));\n");
+  repo.commit("mul (Refs #161)");
+  repo.write(".claude/tracking/issue-160/tracking.md", tracking(160, { review: "re-checked at main" }));
+  repo.commit("note (Refs #160)");
+  const tip = squashPR(repo, "pr-9", 9, "mul (#9)\n\n* mul (Refs #161)\n\n* note (Refs #160)");
+  const r = run(repo, 160, { sha: tip });
+  assert.ok(!has(r, /commits after the witnessed sha/), JSON.stringify(r.reasons));
+
+  // a squash where a #160 commit changes code still counts
+  repo.git("checkout", "-q", "-b", "pr-10", "origin/main");
+  repo.write("src/add.js", "module.exports = (a, b) => b + a;\n");
+  repo.commit("add, reordered (Refs #160)");
+  const tip2 = squashPR(repo, "pr-10", 10, "reorder (#10)\n\n* add, reordered (Refs #160)");
+  assert.ok(has(run(repo, 160, { sha: tip2 }), /commits after the witnessed sha change code \(src\/add\.js\)/));
+});
