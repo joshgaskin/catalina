@@ -339,3 +339,57 @@ test("#2943 fix 2: a squash whose only #N commit is a tracking note isn't #N's c
   const tip2 = squashPR(repo, "pr-10", 10, "reorder (#10)\n\n* add, reordered (Refs #160)");
   assert.ok(has(run(repo, 160, { sha: tip2 }), /commits after the witnessed sha change code \(src\/add\.js\)/));
 });
+
+// #36 (plus2 #2796 at c7a11fb): issue A adds a test; a later commit rewrites it to use what only that commit's code
+// has. The red proof copies A's own version onto A's base, not the tip's, which can't load there.
+function laterRewrite(repo, n, later) {
+  buildIssue(repo, n);
+  repo.git("push", "-q", "origin", "HEAD:main");
+  repo.write("src/add.js", "const add = (a, b) => a + b;\nadd.twice = (a) => add(a, a);\nmodule.exports = add;\n");
+  repo.write("test/add.test.js", TEST.replace("test('adds'", "const four = add.twice(2);\ntest('twice', () => assert.strictEqual(four, 4));\ntest('adds'"));
+  const tip = repo.commit(`twice (${later})`);
+  repo.git("push", "-q", "origin", "HEAD:main");
+  return tip;
+}
+
+test("#36: another issue's later rewrite of the test doesn't condemn the issue that added it", () => {
+  const repo = makeRepo();
+  const tip = laterRewrite(repo, 180, "Refs #181");
+  const r = run(repo, 180, { sha: tip });
+  assert.deepStrictEqual(r.reasons, []);
+});
+
+test("#36: the issue's own later rewrite is still the version proven red (control)", () => {
+  const repo = makeRepo();
+  const tip = laterRewrite(repo, 182, "Refs #182");
+  const r = run(repo, 182, { sha: tip });
+  assert.ok(has(r, /failed to load, not an assertion, on main, and not because of a module this change adds \(.*twice is not a function/), JSON.stringify(r.reasons));
+});
+
+test("#36: a rewrite the issue merged in from main is on its base, so the issue's tip version is the one copied (control)", () => {
+  const repo = makeRepo();
+  const head = "const test = require('node:test');\nconst assert = require('node:assert');\nconst add = require('../src/add');\n";
+  const greets = "const hi = greet();\n// one\n// two\n// three\ntest('greets', () => assert.strictEqual(hi, 'hi'));\n";
+  repo.write("src/greet.js", "module.exports = () => 'hi';\n");
+  repo.write("test/add.test.js", `${head}const greet = require('../src/greet');\n${greets}`);
+  repo.commit("greet");
+  repo.git("push", "-q", "origin", "HEAD:main");
+  repo.git("checkout", "-q", "-b", "issue-184", "origin/main");
+  repo.write("src/add.js", require("./helpers/repo").FIXED);
+  repo.write("test/add.test.js", `${head}const greet = require('../src/greet');\n${greets}test('adds', () => assert.strictEqual(add(2, 3), 5));\n`);
+  repo.commit("fix add (Refs #184)");
+  // meanwhile on main, #185 changes greet's export and the test with it
+  repo.git("checkout", "-q", "-b", "issue-185", "origin/main");
+  repo.write("src/greet.js", "module.exports = { greet: () => 'hi' };\n");
+  repo.write("test/add.test.js", `${head}const { greet } = require('../src/greet');\n${greets}`);
+  repo.commit("greet as a named export (Refs #185)");
+  repo.git("push", "-q", "origin", "HEAD:main");
+  repo.git("checkout", "-q", "issue-184");
+  repo.git("merge", "-q", "--no-edit", "origin/main");
+  const merged = repo.git("rev-parse", "HEAD");
+  repo.write(".claude/tracking/issue-184/tracking.md", tracking(184));
+  repo.write(".claude/tracking/issue-184/verification.jsonl", verification(merged));
+  const tip = repo.commit("evidence (Refs #184)");
+  const r = run(repo, 184, { sha: tip });
+  assert.deepStrictEqual(r.reasons, []);
+});

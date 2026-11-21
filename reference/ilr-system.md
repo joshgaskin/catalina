@@ -332,7 +332,8 @@ builders and other agents alike.
 Done; AC; a Premortem with IDs (or `Trivial: <reason>`); `## Lessons applied`; a verification line
 per AC and per premortem ID with real artifacts; every AC line naming the witnessed sha, with only
 tracking files changed after it; and a **red-then-green proof run for real** — the issue's new or
-changed tests copied onto a temp checkout of the merge-base must fail there on an assertion, or
+changed tests copied onto a temp checkout of the merge-base (each as the issue last wrote it, even when a later
+commit for another issue has rewritten it since) must fail there on an assertion, or
 fail to load only because they import a module the change itself adds (any other load error isn't red), and pass at the commit. A diff that changes no code may record a
 `red_green` exemption instead. Each changed test file is judged on its own: one that passes at the merge-base (its
 tests pin a guard main already has) needs a `{"red_green":"mutant"}` line that names a test in it, and only then does
