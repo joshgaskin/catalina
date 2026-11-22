@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A fake `gh` for tests. State lives in the JSON file named by CATALINA_GH_STATE:
-//   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [] } (issue number = index + 1)
+//   { pulls: { <commit sha>: [pr…] }, issues: [{title, body, labels}], labels: [], commits: { <short sha>: <full sha> } }
+//   (issue number = index + 1)
 const fs = require("fs");
 const file = process.env.CATALINA_GH_STATE;
 const state = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -12,6 +13,11 @@ if (args[0] === "api" && /contents\/\.catalina\/config\.json/.test(args[1])) {
   if (state.adopted === false) process.stderr.write("gh: Not Found (HTTP 404)\n"), process.exit(1);
   if (state.githubDown) process.stderr.write("gh: HTTP 502\n"), process.exit(1);
   process.stdout.write(JSON.stringify({ content: "e30=" }));
+} else if (args[0] === "api" && /\/commits\/[0-9a-f]+$/.test(args[1])) {
+  const short = args[1].split("/").pop();
+  const full = (state.commits || {})[short];
+  if (!full) process.stderr.write(`gh: No commit found for SHA: ${short} (HTTP 422)\n`), process.exit(1);
+  process.stdout.write(JSON.stringify({ sha: full }));
 } else if (args[0] === "api") {
   const m = args[1].match(/commits\/([0-9a-f]+)\/pulls/);
   if (m && (state.unknownCommits || []).includes(m[1])) process.stderr.write(`gh: No commit found for SHA: ${m[1]} (HTTP 422)\n`), process.exit(1);
