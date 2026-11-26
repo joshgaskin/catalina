@@ -75,6 +75,13 @@ they aren't "things."
 
 ## Tier 4 — Operational spine
 
+- [ ] **Hosting & runtime.** Default stack: the app on Cloudflare Workers (Next.js via
+      `@opennextjs/cloudflare`), files on R2, app jobs on Cron Triggers / Queues /
+      Workflows; Supabase for Postgres and auth; a small VPS for agents, long-running jobs,
+      CLIs and headless browsers. Keep the data in Postgres, not D1: agents on the VPS need
+      direct SQL, and D1 runs one query at a time per database. Build Workers-compatible from
+      the first commit (no `sharp`, gRPC SDKs or `child_process` in web code); porting a
+      Node-hosted app later is where the pain is. Deviate only on the record.
 - [ ] **Environments & secrets.** dev / staging / prod separation and an env-var strategy
       decided before the first secret is hardcoded.
 - [ ] **Observability.** Error tracking, structured logging, and a product-analytics event
