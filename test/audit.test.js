@@ -167,3 +167,28 @@ test("audit: a PR body's ref at the end of a prose line still names the PR's iss
   const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
   assert.ok(r.findings.some((f) => /PR #7, issue #203/.test(f.what)), JSON.stringify(r.findings, null, 1));
 });
+
+// plus2 #2943: PR #2942 carried one tracking-only #2199 note beside #2796's code; the audit checked the PR as #2199's
+test("#2943 fix 2: a PR's tracking-only note for another issue isn't audited as that issue's work", () => {
+  const { repo, pulls, money, bad } = fixture();
+  buildIssue(repo, 204);
+  pushMain(repo);
+  repo.git("checkout", "-q", "-b", "issue-205-div", "origin/main");
+  repo.write("src/div.js", "module.exports = (a, b) => a / b;\n");
+  repo.write("test/div.test.js", "const test = require('node:test');\nconst assert = require('node:assert');\nconst div = require('../src/div');\ntest('div', () => assert.strictEqual(div(6, 3), 2));\n");
+  const fix = repo.commit("div (Refs #205)");
+  repo.write(".claude/tracking/issue-205/tracking.md", tracking(205));
+  repo.write(".claude/tracking/issue-205/verification.jsonl", verification(fix));
+  repo.commit("evidence (Refs #205)");
+  repo.write(".claude/tracking/issue-204/tracking.md", tracking(204, { review: "re-checked at main" }));
+  const tip = repo.commit("note (Refs #204)");
+  repo.git("push", "-q", "origin", "HEAD:refs/pull/8/head");
+  repo.git("checkout", "-q", "-B", "main", "origin/main");
+  repo.git("merge", "-q", "--squash", "issue-205-div");
+  const sq = repo.commit("div (#8)\n\n* div (Refs #205)\n\n* evidence (Refs #205)\n\n* note (Refs #204)");
+  pushMain(repo);
+  pulls[sq] = [{ number: 8, merge_commit_sha: sq, head: { sha: tip, ref: "issue-205-div" }, title: "div", body: "Refs #205 Refs #204" }];
+  withGh(repo, { pulls });
+  const r = audit({ cwd: repo.cwd, since: "72h", dryRun: true });
+  assert.deepStrictEqual(r.findings.map((f) => f.sha).sort(), [money, bad.tip].sort(), JSON.stringify(r.findings, null, 1));
+});
