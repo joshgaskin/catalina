@@ -307,6 +307,40 @@ test("#2943 fix 1: a JSON fixture in the change isn't sent to the runner as a te
   assert.deepStrictEqual(r.reasons, []);
 });
 
+// plus2 #3098: a fakes.ts beside the tests under __tests__ is code under test_glob, but vitest collects only *.test.*
+for (const [name, lose, want] of [
+  ["a helper the runner never collects is support, not a test", false, []],
+  ["a test the base run leaves out still fails the proof", true, [/add\.test\.js isn't in the run's report/]],
+]) {
+  test(`#3098: ${name}`, () => {
+    const reporter = `${require("./helpers/repo").ROOT}/test/helpers/vitest-json.mjs`;
+    // collect *.test.* only, as vitest's include does; with `lose`, the base run also drops add.test.js (a lost test)
+    const repo = makeRepo({
+      config: {
+        red_cmd: `f=$(printf '%s\\n' {files} | grep '\\.test\\.' | { [ -e lost ] && grep -v add.test || cat; }); node --test --test-reporter='${reporter}' --test-reporter-destination={report} $f`,
+        red_parser: "vitest",
+      },
+    });
+    repo.write("test/__tests__/fakes.js", "module.exports = { pair: [2, 1] };\n");
+    if (lose) repo.write("lost", "1\n");
+    repo.commit("fakes");
+    repo.git("push", "-q", "origin", "HEAD:main");
+    repo.git("checkout", "-q", "-b", "issue-171", "origin/main");
+    if (lose) repo.git("rm", "-q", "lost");
+    repo.write("src/add.js", require("./helpers/repo").FIXED);
+    repo.write("test/__tests__/fakes.js", "module.exports = { pair: [2, 3] };\n");
+    repo.write("test/add.test.js", TEST.replace("test('adds'", "const { pair } = require('./__tests__/fakes');\ntest('pair', () => assert.strictEqual(add(...pair), 5));\ntest('adds'"));
+    repo.write("test/sub.test.js", "const test = require('node:test');\nconst assert = require('node:assert');\nconst add = require('../src/add');\ntest('sums', () => assert.strictEqual(add(1, 1), 2));\n");
+    const fix = repo.commit("fix add (Refs #171)");
+    repo.write(".claude/tracking/issue-171/tracking.md", tracking(171));
+    repo.write(".claude/tracking/issue-171/verification.jsonl", verification(fix));
+    const tip = repo.commit("evidence (Refs #171)");
+    const r = run(repo, 171, { sha: tip });
+    if (!want.length) assert.deepStrictEqual(r.reasons, []);
+    else for (const re of want) assert.ok(has(r, re), JSON.stringify(r.reasons));
+  });
+}
+
 /** Squash-merges branch `from` onto main as PR `number` (its head pushed to refs/pull/<number>/head). */
 function squashPR(repo, from, number, message) {
   repo.git("push", "-q", "origin", `HEAD:refs/pull/${number}/head`);
