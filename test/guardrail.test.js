@@ -24,17 +24,13 @@ test("AC6: skipping hooks on push or commit is refused; plain push, dry-run push
   }
 });
 
-test("a recursive force delete asks the user instead of being refused", () => {
-  for (const c of ["rm -rf /tmp/x", "rm -fr build", "rm -r -f dist", "cd /tmp && rm -Rf a b", "rm -r dir", "rm -v --recursive dir"]) {
-    assert.strictEqual(runHook(c), 0, c);
-    assert.strictEqual(decisionOf(c), "ask", c);
-  }
-  for (const c of ["rm /tmp/x", "rm -f foo-r", "git rm -r --cached dist", "ls -la"]) {
+test("a recursive delete runs without asking or being refused", () => {
+  for (const c of ["rm -rf /tmp/x", "rm -fr build", "rm -r -f dist", "cd /tmp && rm -Rf a b", "rm -r dir", "rm -v --recursive dir", "rm /tmp/x", "rm -f foo-r", "git rm -r --cached dist", "ls -la"]) {
     assert.strictEqual(runHook(c), 0, c);
     assert.strictEqual(decisionOf(c), undefined, c);
   }
 });
 
-test("a hard block in the same command still refuses when a delete only asks", () => {
+test("a hard block in the same command still refuses alongside a recursive delete", () => {
   assert.strictEqual(runHook("rm -rf build && git push --force origin main"), 2);
 });

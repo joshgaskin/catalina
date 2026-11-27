@@ -12,19 +12,12 @@
  * A rule marked `ask` prompts the user instead of blocking; any blocking
  * rule that also matches the command still wins.
  *
- * Escape hatch: CATALINA_GUARDRAIL_ALLOW=rm-rf,docker-down
+ * Escape hatch: CATALINA_GUARDRAIL_ALLOW=docker-down,git-clean
  */
 
 const os = require("os");
 
 const DENYLIST = [
-  {
-    name: "rm-rf",
-    pattern: /(?<!\bgit\s)\brm\s+(?:-[a-zA-Z]*\s+)*(?:-[a-zA-Z]*[rR]|--recursive\b)/,
-    message:
-      "Recursive delete. Check the path before you approve it.",
-    ask: true,
-  },
   {
     name: "docker-down",
     pattern: /\bdocker\s+compose\s+down\b/,
